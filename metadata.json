@@ -1,0 +1,6 @@
+{
+  "name": "MTOS Cloud Console",
+  "description": "Secure, high-performance cloud portal for sandboxed file storage, authentication, and API credentials tracking via MTOS Cloud Services.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
