@@ -23,12 +23,21 @@ export interface UserProfile {
 
 // File Metadata type
 export interface CloudFile {
+  id: string;
   name: string;
-  size?: number;
-  type?: string;
-  uploadedAt?: string;
-  id?: string;
-  [key: string]: any; // To support any dynamic properties returned by backend logs
+  size: number;
+  type: string;
+  uploadedAt: string;
+  folderId?: string | null;
+  isStarred?: boolean;
+  isTrashed?: boolean;
+}
+
+// Folder type
+export interface CloudFolder {
+  id: string;
+  name: string;
+  createdAt: string;
 }
 
 // Billing Log type
@@ -51,13 +60,13 @@ interface AppContextType {
   authLoading: boolean;
   uploadLoading: boolean;
   listLoading: boolean;
-  keyLoading: boolean;
   logsLoading: boolean;
 
   // Data states
   files: CloudFile[];
-  apiKey: string | null;
+  folders: CloudFolder[];
   billingLogs: BillingLog[];
+  quota: { total: number; used: number; free: number } | null;
   
   // Alert logs
   alerts: AlertMessage[];
@@ -70,11 +79,20 @@ interface AppContextType {
   logOut: () => void;
 
   // File Operations
-  uploadFile: (file: File) => Promise<boolean>;
+  uploadFile: (file: File, folderId?: string | null) => Promise<boolean>;
   fetchFiles: () => Promise<void>;
+  deleteFile: (fileId: string, permanent: boolean) => Promise<boolean>;
+  restoreFile: (fileId: string) => Promise<boolean>;
+  toggleStar: (fileId: string, isStarred: boolean) => Promise<boolean>;
+  renameFile: (fileId: string, name: string) => Promise<boolean>;
+  moveFile: (fileId: string, folderId: string | null) => Promise<boolean>;
 
-  // Billing Operations
-  generateApiKey: () => Promise<string | null>;
+  // Folder Operations
+  fetchFolders: () => Promise<void>;
+  createFolder: (name: string) => Promise<boolean>;
+  deleteFolder: (folderId: string) => Promise<boolean>;
+
+  // Log Operations
   fetchBillingLogs: () => Promise<void>;
 }
 
@@ -91,19 +109,106 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [authLoading, setAuthLoading] = useState(false);
   const [uploadLoading, setUploadLoading] = useState(false);
   const [listLoading, setListLoading] = useState(false);
-  const [keyLoading, setKeyLoading] = useState(false);
   const [logsLoading, setLogsLoading] = useState(false);
 
   const [files, setFiles] = useState<CloudFile[]>([]);
-  const [apiKey, setApiKey] = useState<string | null>(null);
+  const [folders, setFolders] = useState<CloudFolder[]>([]);
   const [billingLogs, setBillingLogs] = useState<BillingLog[]>([]);
   const [alerts, setAlerts] = useState<AlertMessage[]>([]);
+  const [quota, setQuota] = useState<{ total: number; used: number; free: number } | null>(null);
+
+  // Alert Manager
+  const addAlert = (text: string, type: 'success' | 'error' | 'info') => {
+    const id = `alert-${alertCounter++}`;
+    setAlerts((prev) => [...prev, { text, type, id }]);
+    
+    // Auto remove after 5 seconds
+    setTimeout(() => {
+      removeAlert(id);
+    }, 5000);
+  };
+
+  const removeAlert = (id: string) => {
+    setAlerts((prev) => prev.filter((alert) => alert.id !== id));
+  };
+
+  // Helper with direct token for immediate loads
+  const fetchFilesByToken = async (activeToken: string) => {
+    setListLoading(true);
+    try {
+      const res = await fetch('/api/proxy/files/list', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${activeToken}`,
+        },
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to retrieve file index.');
+      }
+
+      const fileData = await res.json();
+      const rawFiles = Array.isArray(fileData) ? fileData : (fileData.files || fileData.data || []);
+      setFiles(rawFiles);
+      if (fileData && fileData.quota) {
+        setQuota(fileData.quota);
+      }
+    } catch (err: any) {
+      console.error(err);
+      addAlert('Failed to index your cloud files.', 'error');
+    } finally {
+      setListLoading(false);
+    }
+  };
+
+  const fetchFoldersByToken = async (activeToken: string) => {
+    try {
+      const res = await fetch('/api/proxy/folders/list', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${activeToken}`,
+        },
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to retrieve folders.');
+      }
+
+      const folderData = await res.json();
+      setFolders(Array.isArray(folderData) ? folderData : []);
+    } catch (err: any) {
+      console.error(err);
+    }
+  };
+
+  const fetchBillingLogsByToken = async (activeToken: string) => {
+    setLogsLoading(true);
+    try {
+      const res = await fetch('/api/proxy/billing/logs', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${activeToken}`,
+        },
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to retrieve activity logs.');
+      }
+
+      const logsData = await res.json();
+      const rawLogs = Array.isArray(logsData) ? logsData : (logsData.logs || logsData.data || []);
+      setBillingLogs(rawLogs);
+    } catch (err: any) {
+      console.error(err);
+    } finally {
+      setLogsLoading(false);
+    }
+  };
 
   // Load state from localStorage once mounted
   useEffect(() => {
     const savedTheme = localStorage.getItem('mtos-theme') as Theme;
     const savedUser = localStorage.getItem('mtos-user');
-    const savedApiKey = localStorage.getItem('mtos-apikey');
 
     const timer = setTimeout(() => {
       if (savedTheme) {
@@ -115,14 +220,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       if (savedUser) {
         try {
-          setUser(JSON.parse(savedUser));
+          const parsedUser = JSON.parse(savedUser);
+          setUser(parsedUser);
+          // Hydrate data immediately
+          fetchFilesByToken(parsedUser.token);
+          fetchFoldersByToken(parsedUser.token);
+          fetchBillingLogsByToken(parsedUser.token);
         } catch (e) {
           localStorage.removeItem('mtos-user');
         }
-      }
-
-      if (savedApiKey) {
-        setApiKey(savedApiKey);
       }
 
       setIsMounted(true);
@@ -147,33 +253,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
   };
 
-  // Alert Manager
-  const addAlert = (text: string, type: 'success' | 'error' | 'info') => {
-    const id = `alert-${alertCounter++}`;
-    setAlerts((prev) => [...prev, { text, type, id }]);
-    
-    // Auto remove after 5 seconds
-    setTimeout(() => {
-      removeAlert(id);
-    }, 5000);
-  };
-
-  const removeAlert = (id: string) => {
-    setAlerts((prev) => prev.filter((alert) => alert.id !== id));
-  };
-
   // Auth Operations
   const signUp = async (data: any): Promise<boolean> => {
     setAuthLoading(true);
     try {
-      const res = await fetch('/api/proxy/auth/signup', {
+      const res = await fetch('/api/proxy/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          action: 'signup',
           name: data.name,
           mobile: data.mobile,
           country: data.country,
           password: data.password,
+          email: data.email,
         }),
       });
 
@@ -183,11 +276,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         throw new Error(resData.message || resData.error || 'Failed to sign up.');
       }
 
-      addAlert('Account created successfully! Your masked username is ' + data.mobile + '@mtos-org.com', 'success');
+      addAlert('Drive account created successfully! Your login email is: ' + data.email, 'success');
       setAuthLoading(false);
       return true;
     } catch (err: any) {
-      addAlert(err.message || 'Network error occurred during registration.', 'error');
+      addAlert(err.message || 'Error occurred during registration.', 'error');
       setAuthLoading(false);
       return false;
     }
@@ -196,10 +289,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const logIn = async (data: any): Promise<boolean> => {
     setAuthLoading(true);
     try {
-      const res = await fetch('/api/proxy/auth/login', {
+      const res = await fetch('/api/proxy/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          action: 'login',
           email: data.email,
           password: data.password,
         }),
@@ -211,13 +305,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         throw new Error(resData.message || resData.error || 'Authentication failed. Please check credentials.');
       }
 
-      // Format user details. Backend returns a JWT token (frequently inside 'token' or 'jwt' or directly)
       const token = resData.token || resData.jwt || resData.accessToken || '';
       if (!token) {
         throw new Error('Authentication did not return a valid secure token.');
       }
 
-      // Build safe local user profile
       const parsedUser: UserProfile = {
         name: resData.user?.name || resData.name || 'Cloud User',
         email: data.email,
@@ -228,20 +320,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       setUser(parsedUser);
       localStorage.setItem('mtos-user', JSON.stringify(parsedUser));
-      addAlert('Successfully authenticated. Welcome back, ' + parsedUser.name + '!', 'success');
+      addAlert('Logged in successfully. Welcome, ' + parsedUser.name + '!', 'success');
       
-      // Fetch initial user metrics
       setAuthLoading(false);
       
-      // Auto-trigger load
+      // Load user drive assets
       setTimeout(() => {
         fetchFilesByToken(token);
+        fetchFoldersByToken(token);
         fetchBillingLogsByToken(token);
       }, 100);
 
       return true;
     } catch (err: any) {
-      addAlert(err.message || 'Network error occurred during login.', 'error');
+      addAlert(err.message || 'Failed to sign in.', 'error');
       setAuthLoading(false);
       return false;
     }
@@ -250,46 +342,89 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const logOut = () => {
     setUser(null);
     setFiles([]);
-    setApiKey(null);
+    setFolders([]);
     setBillingLogs([]);
     localStorage.removeItem('mtos-user');
-    localStorage.removeItem('mtos-apikey');
-    addAlert('Session terminated. You have logged out.', 'info');
+    addAlert('Logged out successfully.', 'info');
   };
 
-  // Helper with direct token for immediate loads after login
-  const fetchFilesByToken = async (activeToken: string) => {
-    setListLoading(true);
-    try {
-      const res = await fetch('/api/proxy/files/list', {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${activeToken}`,
-        },
-      });
-
-      if (!res.ok) {
-        throw new Error('Failed to retrieve file index from your vault.');
-      }
-
-      const fileData = await res.json();
-      // Handle various response types (array or wrapped list)
-      const rawFiles = Array.isArray(fileData) ? fileData : (fileData.files || fileData.data || []);
-      setFiles(rawFiles);
-    } catch (err: any) {
-      console.error(err);
-      addAlert('Failed to index your workspace files.', 'error');
-    } finally {
-      setListLoading(false);
-    }
-  };
-
+  // Files Fetch
   const fetchFiles = async () => {
     if (!user) return;
     await fetchFilesByToken(user.token);
   };
 
-  const uploadFile = async (file: File): Promise<boolean> => {
+  // Folders Fetch
+  const fetchFolders = async () => {
+    if (!user) return;
+    await fetchFoldersByToken(user.token);
+  };
+
+  // Billing Logs Fetch
+  const fetchBillingLogs = async () => {
+    if (!user) return;
+    await fetchBillingLogsByToken(user.token);
+  };
+
+  // Create Folder
+  const createFolder = async (name: string): Promise<boolean> => {
+    if (!user) return false;
+    try {
+      const res = await fetch('/api/proxy/folders/create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${user.token}`,
+        },
+        body: JSON.stringify({ name }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to create folder');
+      }
+
+      addAlert(`Folder "${name}" created successfully.`, 'success');
+      await fetchFolders();
+      await fetchBillingLogs();
+      return true;
+    } catch (err: any) {
+      addAlert(err.message || 'Error creating folder.', 'error');
+      return false;
+    }
+  };
+
+  // Delete Folder
+  const deleteFolder = async (folderId: string): Promise<boolean> => {
+    if (!user) return false;
+    try {
+      const res = await fetch('/api/proxy/folders/delete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${user.token}`,
+        },
+        body: JSON.stringify({ folderId }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to delete folder');
+      }
+
+      addAlert('Folder deleted. Inner files returned to My Drive root.', 'success');
+      await fetchFolders();
+      await fetchFiles();
+      await fetchBillingLogs();
+      return true;
+    } catch (err: any) {
+      addAlert(err.message || 'Error deleting folder.', 'error');
+      return false;
+    }
+  };
+
+  // Upload File
+  const uploadFile = async (file: File, folderId: string | null = null): Promise<boolean> => {
     if (!user) {
       addAlert('Authentication required to upload files.', 'error');
       return false;
@@ -299,6 +434,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       const formData = new FormData();
       formData.append('file', file);
+      if (folderId) {
+        formData.append('folderId', folderId);
+      }
 
       const res = await fetch('/api/proxy/files/upload', {
         method: 'POST',
@@ -310,16 +448,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.message || errorData.error || 'Server error. Chunk writing failed.');
+        throw new Error(errorData.message || errorData.error || 'Failed to upload file.');
       }
 
-      addAlert(`"${file.name}" uploaded successfully to your sandboxed directory.`, 'success');
-      
-      // Refresh list
+      addAlert(`"${file.name}" uploaded successfully.`, 'success');
       await fetchFiles();
-      // Refresh billing logs
       await fetchBillingLogs();
-      
       return true;
     } catch (err: any) {
       addAlert(err.message || `Failed to upload "${file.name}".`, 'error');
@@ -329,71 +463,142 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const generateApiKey = async (): Promise<string | null> => {
-    if (!user) return null;
-    setKeyLoading(true);
+  // Delete/Trash File
+  const deleteFile = async (fileId: string, permanent: boolean): Promise<boolean> => {
+    if (!user) return false;
     try {
-      const res = await fetch('/api/proxy/billing/keygen', {
+      const res = await fetch('/api/proxy/files/delete', {
         method: 'POST',
         headers: {
+          'Content-Type': 'application/json',
           'Authorization': `Bearer ${user.token}`,
         },
+        body: JSON.stringify({ fileId, permanent }),
       });
 
-      const resData = await res.json();
-
       if (!res.ok) {
-        throw new Error(resData.message || resData.error || 'Failed to generate API Key.');
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to delete file');
       }
 
-      const generatedKey = resData.key || resData.apiKey || resData.hash || '';
-      if (!generatedKey) {
-        throw new Error('Server response did not include an API key string.');
-      }
-
-      setApiKey(generatedKey);
-      localStorage.setItem('mtos-apikey', generatedKey);
-      addAlert('Successfully generated persistent billing API key!', 'success');
-      
-      // Refresh logs
+      addAlert(permanent ? 'File deleted permanently.' : 'File moved to Trash.', 'success');
+      await fetchFiles();
       await fetchBillingLogs();
-      return generatedKey;
+      return true;
     } catch (err: any) {
-      addAlert(err.message || 'Failed to bind static key to profile.', 'error');
-      return null;
-    } finally {
-      setKeyLoading(false);
+      addAlert(err.message || 'Error deleting file.', 'error');
+      return false;
     }
   };
 
-  const fetchBillingLogsByToken = async (activeToken: string) => {
-    setLogsLoading(true);
+  // Restore File
+  const restoreFile = async (fileId: string): Promise<boolean> => {
+    if (!user) return false;
     try {
-      const res = await fetch('/api/proxy/billing/logs', {
-        method: 'GET',
+      const res = await fetch('/api/proxy/files/restore', {
+        method: 'POST',
         headers: {
-          'Authorization': `Bearer ${activeToken}`,
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${user.token}`,
         },
+        body: JSON.stringify({ fileId }),
       });
 
       if (!res.ok) {
-        throw new Error('Failed to retrieve billing logs.');
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to restore file');
       }
 
-      const logsData = await res.json();
-      const rawLogs = Array.isArray(logsData) ? logsData : (logsData.logs || logsData.data || []);
-      setBillingLogs(rawLogs);
+      addAlert('File restored to active storage.', 'success');
+      await fetchFiles();
+      await fetchBillingLogs();
+      return true;
     } catch (err: any) {
-      console.error(err);
-      addAlert('Failed to load transaction billing logs.', 'error');
-    } finally {
-      setLogsLoading(false);
+      addAlert(err.message || 'Error restoring file.', 'error');
+      return false;
     }
   };
 
-  const fetchBillingLogs = async () => {
-    if (!user) return;
-    await fetchBillingLogsByToken(user.token);
+  // Toggle Star
+  const toggleStar = async (fileId: string, isStarred: boolean): Promise<boolean> => {
+    if (!user) return false;
+    try {
+      const res = await fetch('/api/proxy/files/star', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${user.token}`,
+        },
+        body: JSON.stringify({ fileId, isStarred }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to star/unstar file');
+      }
+
+      await fetchFiles();
+      return true;
+    } catch (err: any) {
+      addAlert(err.message || 'Error updating starred status.', 'error');
+      return false;
+    }
+  };
+
+  // Rename File
+  const renameFile = async (fileId: string, name: string): Promise<boolean> => {
+    if (!user) return false;
+    try {
+      const res = await fetch('/api/proxy/files/rename', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${user.token}`,
+        },
+        body: JSON.stringify({ fileId, name }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to rename file');
+      }
+
+      addAlert('File renamed successfully.', 'success');
+      await fetchFiles();
+      await fetchBillingLogs();
+      return true;
+    } catch (err: any) {
+      addAlert(err.message || 'Error renaming file.', 'error');
+      return false;
+    }
+  };
+
+  // Move File Folder
+  const moveFile = async (fileId: string, folderId: string | null): Promise<boolean> => {
+    if (!user) return false;
+    try {
+      const res = await fetch('/api/proxy/files/move', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${user.token}`,
+        },
+        body: JSON.stringify({ fileId, folderId }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to move file');
+      }
+
+      addAlert('File moved successfully.', 'success');
+      await fetchFiles();
+      await fetchBillingLogs();
+      return true;
+    } catch (err: any) {
+      addAlert(err.message || 'Error moving file.', 'error');
+      return false;
+    }
   };
 
   return (
@@ -406,11 +611,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         authLoading,
         uploadLoading,
         listLoading,
-        keyLoading,
         logsLoading,
         files,
-        apiKey,
+        folders,
         billingLogs,
+        quota,
         alerts,
         addAlert,
         removeAlert,
@@ -419,7 +624,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         logOut,
         uploadFile,
         fetchFiles,
-        generateApiKey,
+        deleteFile,
+        restoreFile,
+        toggleStar,
+        renameFile,
+        moveFile,
+        fetchFolders,
+        createFolder,
+        deleteFolder,
         fetchBillingLogs,
       }}
     >

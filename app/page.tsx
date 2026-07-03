@@ -1,23 +1,18 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useApp, CloudFile, BillingLog } from '@/lib/context';
+import { useApp, CloudFile, CloudFolder } from '@/lib/context';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Cloud,
   Upload,
-  Shield,
-  Key,
-  FileText,
-  Database,
-  LogOut,
-  Sun,
-  Moon,
-  Lock,
+  HardDrive,
+  Folder,
+  FolderPlus,
+  Star,
+  Trash,
+  Trash2,
   User,
-  Globe,
-  Phone,
-  RefreshCw,
   Search,
   Copy,
   Check,
@@ -25,12 +20,30 @@ import {
   EyeOff,
   Activity,
   File,
-  HardDrive,
   CircleAlert,
-  DollarSign,
   Clock,
-  Terminal,
-  ExternalLink
+  ArrowLeft,
+  Grid,
+  List,
+  MoreVertical,
+  Download,
+  Edit3,
+  FolderOpen,
+  FileText,
+  LayoutGrid,
+  Settings,
+  RefreshCw,
+  LogOut,
+  Sun,
+  Moon,
+  Menu,
+  X,
+  FileImage,
+  FileAudio,
+  FileVideo,
+  ChevronRight,
+  Sparkles,
+  Info
 } from 'lucide-react';
 
 export default function Home() {
@@ -41,11 +54,10 @@ export default function Home() {
     authLoading,
     uploadLoading,
     listLoading,
-    keyLoading,
-    logsLoading,
     files,
-    apiKey,
+    folders,
     billingLogs,
+    quota,
     alerts,
     addAlert,
     removeAlert,
@@ -54,1150 +66,2074 @@ export default function Home() {
     logOut,
     uploadFile,
     fetchFiles,
-    generateApiKey,
+    deleteFile,
+    restoreFile,
+    toggleStar,
+    renameFile,
+    moveFile,
+    createFolder,
+    deleteFolder,
+    fetchFolders,
     fetchBillingLogs
   } = useApp();
 
-  // Navigation states
-  const [activeTab, setActiveTab] = useState<'overview' | 'files' | 'billing' | 'profile'>('overview');
+  // Navigation and filters
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'drive' | 'starred' | 'trash' | 'profile'>('dashboard');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // Folder navigation state
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
+
+  // File explorer filtering & layout
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<'date-desc' | 'date-asc' | 'name-asc' | 'name-desc' | 'size-desc' | 'size-asc'>('date-desc');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [selectedFile, setSelectedFile] = useState<CloudFile | null>(null);
   
-  // Auth state: 'login' | 'signup'
+  // Custom dialogs/overlays
+  const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  
+  const [renamingFileId, setRenamingFileId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  
+  const [movingFile, setMovingFile] = useState<CloudFile | null>(null);
+  const [isMoveFolderOpen, setIsMoveFolderOpen] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+
+  // Auth local inputs
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
-  
-  // Sign up fields
   const [signupName, setSignupName] = useState('');
   const [signupMobile, setSignupMobile] = useState('');
   const [signupCountry, setSignupCountry] = useState('United States');
   const [signupPassword, setSignupPassword] = useState('');
   
-  // Login fields
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
-
-  // Password visibility
   const [showPassword, setShowPassword] = useState(false);
-  const [showApiKey, setShowApiKey] = useState(false);
-  
-  // File upload drag-and-drop
-  const [dragActive, setDragActive] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  
-  // Search query
-  const [searchQuery, setSearchQuery] = useState('');
 
-  // Auto load data when user logs in
+  // Drag and drop states
+  const [isDragging, setIsDragging] = useState(false);
+  const dragCounter = useRef(0);
+
+  // Storage Limit (Dynamic server quota or 100 MB fallback)
+  const STORAGE_LIMIT = quota?.total || 100 * 1024 * 1024;
+
+  // Auto-fetch data on tab switches or folder switches when user is active
   useEffect(() => {
     if (user) {
       fetchFiles();
+      fetchFolders();
       fetchBillingLogs();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
+  }, [user, activeTab]);
 
-  // Handle Drag Events
-  const handleDrag = (e: React.DragEvent) => {
+  // Form handle helpers
+  const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
-    e.stopPropagation();
-    if (e.type === "dragenter" || e.type === "dragover") {
-      setDragActive(true);
-    } else if (e.type === "dragleave") {
-      setDragActive(false);
-    }
-  };
-
-  // Handle Drop
-  const handleDrop = async (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-    
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      const droppedFile = e.dataTransfer.files[0];
-      await uploadFile(droppedFile);
-    }
-  };
-
-  // Handle File Input Selection
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    e.preventDefault();
-    if (e.target.files && e.target.files[0]) {
-      await uploadFile(e.target.files[0]);
-    }
-  };
-
-  // Clipboard copy helper
-  const copyToClipboard = (text: string, label: string) => {
-    navigator.clipboard.writeText(text);
-    addAlert(`${label} copied to clipboard!`, 'success');
-  };
-
-  // Submit Sign Up
-  const handleSignUpSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!signupName || !signupMobile || !signupCountry || !signupPassword) {
-      addAlert('All registration fields are required.', 'error');
+    if (!signupName || !signupMobile || !signupPassword) {
+      addAlert('Please fill out all fields.', 'error');
       return;
     }
+    // Generate email as mobile@mtos-org.com
+    const cleanMobile = signupMobile.replace(/[^a-zA-Z0-9]/g, '');
+    const generatedEmail = `${cleanMobile || 'mobile'}@mtos-org.com`;
+
     const success = await signUp({
       name: signupName,
       mobile: signupMobile,
       country: signupCountry,
       password: signupPassword,
+      email: generatedEmail
     });
     if (success) {
-      // Auto-set the generated login email
-      setLoginEmail(`${signupMobile}+@mtos-org.com`);
       setAuthMode('login');
-      // Reset signup fields
-      setSignupName('');
-      setSignupMobile('');
-      setSignupPassword('');
+      setLoginEmail(generatedEmail);
     }
   };
 
-  // Submit Log In
-  const handleLogInSubmit = async (e: React.FormEvent) => {
+  const handleLogIn = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!loginEmail || !loginPassword) {
-      addAlert('Email and password are required to login.', 'error');
+      addAlert('Please fill out all login credentials.', 'error');
       return;
     }
     await logIn({
       email: loginEmail,
-      password: loginPassword,
+      password: loginPassword
     });
   };
 
-  // Format file size
-  const formatBytes = (bytes?: number) => {
-    if (bytes === undefined || bytes === null) return 'N/A';
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  // Drag & drop file upload
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current++;
+    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+      setIsDragging(true);
+    }
   };
 
-  // Filtered files
-  const filteredFiles = files.filter(f => 
-    (f.name || '').toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current--;
+    if (dragCounter.current === 0) {
+      setIsDragging(false);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    dragCounter.current = 0;
+
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const droppedFiles = Array.from(e.dataTransfer.files);
+      addAlert(`Uploading ${droppedFiles.length} file(s)...`, 'info');
+      for (const file of droppedFiles) {
+        await uploadFile(file, currentFolderId);
+      }
+    }
+  };
+
+  const handleFileInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const selectedFiles = Array.from(e.target.files);
+      addAlert(`Uploading ${selectedFiles.length} file(s)...`, 'info');
+      for (const file of selectedFiles) {
+        await uploadFile(file, currentFolderId);
+      }
+    }
+  };
+
+  // Storage Stats Calculation
+  const getStorageStats = () => {
+    const totalSize = files.reduce((acc, f) => acc + (f.size || 0), 0);
+    const percent = Math.min(100, (totalSize / STORAGE_LIMIT) * 100);
+    
+    // Split by categories
+    let imagesSize = 0, imagesCount = 0;
+    let docsSize = 0, docsCount = 0;
+    let mediaSize = 0, mediaCount = 0;
+    let otherSize = 0, otherCount = 0;
+
+    files.forEach(f => {
+      const type = (f.type || '').toLowerCase();
+      if (type.startsWith('image/')) {
+        imagesSize += f.size || 0;
+        imagesCount++;
+      } else if (
+        type.includes('pdf') ||
+        type.includes('word') ||
+        type.includes('excel') ||
+        type.includes('powerpoint') ||
+        type.includes('text') ||
+        type.includes('plain') ||
+        type.includes('document')
+      ) {
+        docsSize += f.size || 0;
+        docsCount++;
+      } else if (type.startsWith('audio/') || type.startsWith('video/')) {
+        mediaSize += f.size || 0;
+        mediaCount++;
+      } else {
+        otherSize += f.size || 0;
+        otherCount++;
+      }
+    });
+
+    return {
+      totalSize,
+      percent,
+      imagesSize,
+      imagesCount,
+      docsSize,
+      docsCount,
+      mediaSize,
+      mediaCount,
+      otherSize,
+      otherCount
+    };
+  };
+
+  const stats = getStorageStats();
+
+  const formatSize = (bytes?: number) => {
+    if (!bytes || bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  };
+
+  const getFileIcon = (type?: string) => {
+    const t = (type || '').toLowerCase();
+    if (t.startsWith('image/')) return <FileImage className="h-8 w-8 text-rose-500 shrink-0" />;
+    if (t.startsWith('audio/')) return <FileAudio className="h-8 w-8 text-purple-500 shrink-0" />;
+    if (t.startsWith('video/')) return <FileVideo className="h-8 w-8 text-amber-500 shrink-0" />;
+    if (t.includes('pdf') || t.includes('word') || t.includes('text') || t.includes('plain')) {
+      return <FileText className="h-8 w-8 text-blue-500 shrink-0" />;
+    }
+    return <File className="h-8 w-8 text-zinc-500 shrink-0" />;
+  };
+
+  // Filtered files depending on active route
+  const getFilteredFiles = () => {
+    let result = [...files];
+
+    // 1. Tab filters
+    if (activeTab === 'starred') {
+      result = result.filter(f => f.isStarred && !f.isTrashed);
+    } else if (activeTab === 'trash') {
+      result = result.filter(f => f.isTrashed);
+    } else {
+      // Normal drive or dashboard view
+      result = result.filter(f => !f.isTrashed);
+      
+      // If inside a folder and on My Drive
+      if (activeTab === 'drive') {
+        result = result.filter(f => f.folderId === currentFolderId);
+      }
+    }
+
+    // 2. Search query filter
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(f => f.name.toLowerCase().includes(q));
+    }
+
+    // 3. Sorting
+    result.sort((a, b) => {
+      if (sortBy === 'name-asc') return a.name.localeCompare(b.name);
+      if (sortBy === 'name-desc') return b.name.localeCompare(a.name);
+      if (sortBy === 'size-desc') return (b.size || 0) - (a.size || 0);
+      if (sortBy === 'size-asc') return (a.size || 0) - (b.size || 0);
+      if (sortBy === 'date-asc') return new Date(a.uploadedAt).getTime() - new Date(b.uploadedAt).getTime();
+      return new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime(); // date-desc
+    });
+
+    return result;
+  };
+
+  const filteredFiles = getFilteredFiles();
+
+  // Helper folder calculations
+  const getFolderFilesCount = (folderId: string) => {
+    return files.filter(f => f.folderId === folderId && !f.isTrashed).length;
+  };
+
+  const getFolderFilesSize = (folderId: string) => {
+    return files
+      .filter(f => f.folderId === folderId && !f.isTrashed)
+      .reduce((sum, f) => sum + (f.size || 0), 0);
+  };
+
+  // Real direct physical file download from storage.php
+  const triggerDownload = (file: CloudFile) => {
+    if (!user) {
+      addAlert('Authentication required to download files.', 'error');
+      return;
+    }
+    addAlert(`Initiating download for "${file.name}"...`, 'info');
+    
+    // Direct physical download link from storage.php
+    const downloadUrl = `https://api.cloud.mtos-org.site/storage.php?country=${encodeURIComponent(user.country)}&email=${encodeURIComponent(user.email)}&file=${encodeURIComponent(file.name)}`;
+    
+    const a = document.createElement('a');
+    a.href = downloadUrl;
+    a.download = file.name;
+    a.target = '_blank';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    addAlert(`Successfully downloaded "${file.name}"!`, 'success');
+  };
+
+  // Helper to filter files by category
+  const getCategoryFiles = (categoryName: string) => {
+    return files.filter(f => {
+      if (f.isTrashed) return false;
+      const type = (f.type || '').toLowerCase();
+      if (categoryName === 'Images') {
+        return type.startsWith('image/');
+      } else if (categoryName === 'Documents') {
+        return (
+          type.includes('pdf') ||
+          type.includes('word') ||
+          type.includes('excel') ||
+          type.includes('powerpoint') ||
+          type.includes('text') ||
+          type.includes('plain') ||
+          type.includes('document')
+        );
+      } else if (categoryName === 'Media Files') {
+        return type.startsWith('audio/') || type.startsWith('video/');
+      } else {
+        // Others & Archives
+        const isImg = type.startsWith('image/');
+        const isDoc = (
+          type.includes('pdf') ||
+          type.includes('word') ||
+          type.includes('excel') ||
+          type.includes('powerpoint') ||
+          type.includes('text') ||
+          type.includes('plain') ||
+          type.includes('document')
+        );
+        const isMedia = type.startsWith('audio/') || type.startsWith('video/');
+        return !isImg && !isDoc && !isMedia;
+      }
+    });
+  };
+
+  // Helper trigger to copy mock secure drive share URL
+  const copyShareLink = (file: CloudFile) => {
+    const mockUrl = `${window.location.origin}/drive/share/${file.id}`;
+    navigator.clipboard.writeText(mockUrl);
+    addAlert('Secure drive file share link copied to clipboard!', 'success');
+  };
 
   return (
-    <div className="min-h-screen flex flex-col antialiased">
-      {/* Toast Alert Notifications */}
-      <div id="toast-container" className="fixed top-5 right-5 z-50 flex flex-col gap-3 max-w-sm w-full pointer-events-none">
+    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-800 dark:text-zinc-200 flex flex-col font-sans transition-colors duration-150">
+      
+      {/* ALERTS SYSTEM */}
+      <div className="fixed top-4 right-4 z-50 flex flex-col gap-2.5 max-w-sm pointer-events-none">
         <AnimatePresence>
           {alerts.map((alert) => (
             <motion.div
               key={alert.id}
-              layout
-              initial={{ opacity: 0, y: -20, scale: 0.95 }}
+              initial={{ opacity: 0, y: -10, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9, y: 10 }}
-              transition={{ duration: 0.2 }}
-              className={`p-4 rounded-xl shadow-lg border backdrop-blur-md pointer-events-auto flex items-start gap-3 ${
+              exit={{ opacity: 0, scale: 0.9, y: -5 }}
+              className={`p-3.5 rounded-lg shadow-lg text-xs font-semibold flex items-center gap-2.5 border backdrop-blur-md pointer-events-auto ${
                 alert.type === 'success'
-                  ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+                  ? 'bg-emerald-500/10 dark:bg-emerald-500/5 border-emerald-500/20 text-emerald-600 dark:text-emerald-400'
                   : alert.type === 'error'
-                  ? 'bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-400'
-                  : 'bg-indigo-500/10 border-indigo-500/20 text-indigo-600 dark:text-indigo-400'
+                  ? 'bg-rose-500/10 dark:bg-rose-500/5 border-rose-500/20 text-rose-600 dark:text-rose-400'
+                  : 'bg-blue-500/10 dark:bg-blue-500/5 border-blue-500/20 text-blue-600 dark:text-blue-400'
               }`}
             >
-              <div className="mt-0.5">
-                <CircleAlert className="h-5 w-5 shrink-0" />
-              </div>
-              <div className="flex-1">
-                <p className="text-sm font-medium leading-relaxed font-sans">{alert.text}</p>
-              </div>
+              <Info className="h-4 w-4 shrink-0" />
+              <div className="flex-1">{alert.text}</div>
               <button
                 onClick={() => removeAlert(alert.id)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors shrink-0"
+                className="hover:bg-zinc-200 dark:hover:bg-zinc-800 p-0.5 rounded cursor-pointer"
               >
-                &times;
+                <X className="h-3 w-3" />
               </button>
             </motion.div>
           ))}
         </AnimatePresence>
       </div>
 
-      {/* Main Container */}
       {!user ? (
-        // Unauthenticated Gateway Portal
-        <div className="flex-1 flex flex-col items-center justify-center p-4 bg-zinc-50 dark:bg-zinc-950 transition-colors duration-150">
+        // AUTHENTICATION VIEW
+        <div className="flex-1 flex flex-col items-center justify-center p-6 bg-radial from-zinc-100 to-zinc-50 dark:from-zinc-900 dark:to-zinc-950">
           <motion.div
-            initial={{ opacity: 0, y: 15 }}
+            initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3 }}
-            className="w-full max-w-md bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-lg overflow-hidden"
+            className="w-full max-w-md bg-white dark:bg-zinc-900/80 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-xl p-8 backdrop-blur-md"
           >
-            {/* Header Identity */}
-            <div className="p-6 text-center border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40">
-              <div className="mx-auto h-10 w-10 bg-blue-600 rounded-lg flex items-center justify-center text-white shadow-lg shadow-blue-900/20 mb-3">
-                <Cloud className="h-5 w-5" />
+            <div className="flex flex-col items-center mb-8 text-center">
+              <div className="h-12 w-12 rounded-xl bg-blue-600/10 flex items-center justify-center border border-blue-500/20 mb-3 text-blue-600 dark:text-blue-400">
+                <Cloud className="h-6 w-6" />
               </div>
-              <h1 className="text-xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100 font-sans">
-                MTOS Cloud Console
-              </h1>
-              <p className="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400 leading-normal max-w-sm mx-auto">
-                Manage high-performance secure sandbox environments, storage indexes, and billing API credentials.
+              <h2 className="text-xl font-bold tracking-tight text-zinc-900 dark:text-white">
+                MTOS Cloud Drive
+              </h2>
+              <p className="text-zinc-500 dark:text-zinc-400 text-xs mt-1">
+                Securely store, organize, and access your folders & files anywhere.
               </p>
             </div>
 
-            {/* Auth Switcher */}
-            <div className="flex border-b border-zinc-200 dark:border-zinc-800 p-1 bg-zinc-100/50 dark:bg-zinc-950">
+            <div className="flex bg-zinc-100 dark:bg-zinc-950 p-1 rounded-lg border border-zinc-200 dark:border-zinc-800 mb-6">
               <button
                 onClick={() => setAuthMode('login')}
-                className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-all ${
+                className={`flex-1 text-center py-2 text-xs font-bold rounded-md transition-all cursor-pointer ${
                   authMode === 'login'
-                    ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-xs border border-zinc-200/50 dark:border-zinc-700/50'
-                    : 'text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200'
+                    ? 'bg-white dark:bg-zinc-800 text-zinc-950 dark:text-white shadow-xs'
+                    : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200'
                 }`}
               >
                 Sign In
               </button>
               <button
                 onClick={() => setAuthMode('signup')}
-                className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-all ${
+                className={`flex-1 text-center py-2 text-xs font-bold rounded-md transition-all cursor-pointer ${
                   authMode === 'signup'
-                    ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-xs border border-zinc-200/50 dark:border-zinc-700/50'
-                    : 'text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200'
+                    ? 'bg-white dark:bg-zinc-800 text-zinc-950 dark:text-white shadow-xs'
+                    : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200'
                 }`}
               >
-                Create Account
+                Create Drive Account
               </button>
             </div>
 
-            {/* Form Section */}
-            <div className="p-6">
-              {authMode === 'signup' ? (
-                // SIGN UP FORM
-                <form onSubmit={handleSignUpSubmit} className="space-y-3.5">
+            <form onSubmit={authMode === 'login' ? handleLogIn : handleSignUp} className="space-y-4">
+              {authMode === 'signup' && (
+                <>
                   <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-1">
+                    <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-wider mb-1.5">
                       Full Name
                     </label>
-                    <div className="relative">
-                      <User className="absolute left-3 top-2.5 h-3.5 w-3.5 text-zinc-500" />
-                      <input
-                        type="text"
-                        required
-                        placeholder="John Doe"
-                        value={signupName}
-                        onChange={(e) => setSignupName(e.target.value)}
-                        className="w-full pl-9 pr-4 py-1.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-zinc-900 dark:text-zinc-100"
-                      />
-                    </div>
+                    <input
+                      type="text"
+                      required
+                      value={signupName}
+                      onChange={(e) => setSignupName(e.target.value)}
+                      placeholder="e.g. Salman Ahmad"
+                      className="w-full px-3 py-2 text-sm rounded-lg bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 focus:outline-none focus:border-blue-500 transition-colors"
+                    />
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-1">
-                      Mobile Number
+                    <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-wider mb-1.5">
+                      Phone Number
                     </label>
-                    <div className="relative">
-                      <Phone className="absolute left-3 top-2.5 h-3.5 w-3.5 text-zinc-500" />
-                      <input
-                        type="tel"
-                        required
-                        placeholder="9876543210"
-                        value={signupMobile}
-                        onChange={(e) => setSignupMobile(e.target.value.replace(/\D/g, ''))}
-                        className="w-full pl-9 pr-4 py-1.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-zinc-900 dark:text-zinc-100 font-mono"
-                      />
-                    </div>
-                    {signupMobile && (
-                      <motion.p
-                        initial={{ opacity: 0, y: -5 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="mt-1.5 text-[11px] text-blue-500 dark:text-blue-400 font-mono flex items-center gap-1.5 bg-blue-500/5 p-2 rounded-md border border-blue-500/10"
-                      >
-                        <Shield className="h-3.5 w-3.5" />
-                        ID: <span className="font-semibold">{signupMobile}+@mtos-org.com</span>
-                      </motion.p>
-                    )}
+                    <input
+                      type="tel"
+                      required
+                      value={signupMobile}
+                      onChange={(e) => setSignupMobile(e.target.value)}
+                      placeholder="e.g. +1 (555) 019-2834"
+                      className="w-full px-3 py-2 text-sm rounded-lg bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 focus:outline-none focus:border-blue-500 transition-colors"
+                    />
                   </div>
-
                   <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-1">
+                    <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-wider mb-1.5">
                       Country
                     </label>
-                    <div className="relative">
-                      <Globe className="absolute left-3 top-2.5 h-3.5 w-3.5 text-zinc-500" />
-                      <select
-                        value={signupCountry}
-                        onChange={(e) => setSignupCountry(e.target.value)}
-                        className="w-full pl-9 pr-4 py-1.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-zinc-900 dark:text-zinc-100 appearance-none"
-                      >
-                        <option value="United States">United States</option>
-                        <option value="India">India</option>
-                        <option value="Germany">Germany</option>
-                        <option value="United Kingdom">United Kingdom</option>
-                        <option value="Singapore">Singapore</option>
-                        <option value="Australia">Australia</option>
-                        <option value="Canada">Canada</option>
-                        <option value="Japan">Japan</option>
-                      </select>
-                    </div>
+                    <select
+                      value={signupCountry}
+                      onChange={(e) => setSignupCountry(e.target.value)}
+                      className="w-full px-3 py-2 text-sm rounded-lg bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 focus:outline-none focus:border-blue-500 transition-colors"
+                    >
+                      <option value="United States">United States</option>
+                      <option value="United Kingdom">United Kingdom</option>
+                      <option value="Canada">Canada</option>
+                      <option value="India">India</option>
+                      <option value="Germany">Germany</option>
+                      <option value="Australia">Australia</option>
+                    </select>
                   </div>
-
-                  <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-1">
-                      Secret Password
-                    </label>
-                    <div className="relative">
-                      <Lock className="absolute left-3 top-2.5 h-3.5 w-3.5 text-zinc-500" />
-                      <input
-                        type={showPassword ? "text" : "password"}
-                        required
-                        placeholder="••••••••"
-                        value={signupPassword}
-                        onChange={(e) => setSignupPassword(e.target.value)}
-                        className="w-full pl-9 pr-9 py-1.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-zinc-900 dark:text-zinc-100"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-3 top-2.5 text-zinc-500 hover:text-zinc-300"
-                      >
-                        {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                      </button>
-                    </div>
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={authLoading}
-                    className="w-full mt-2 py-2 px-4 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg text-xs transition-colors flex items-center justify-center gap-1.5 disabled:opacity-70 disabled:pointer-events-none cursor-pointer"
-                  >
-                    {authLoading ? (
-                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <User className="h-3.5 w-3.5" />
-                    )}
-                    Register Vault Console
-                  </button>
-                </form>
-              ) : (
-                // LOG IN FORM
-                <form onSubmit={handleLogInSubmit} className="space-y-3.5">
-                  <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-1">
-                      Masked Identity (Email / Mobile @)
-                    </label>
-                    <div className="relative">
-                      <User className="absolute left-3 top-2.5 h-3.5 w-3.5 text-zinc-500" />
-                      <input
-                        type="email"
-                        required
-                        placeholder="9876543210+@mtos-org.com"
-                        value={loginEmail}
-                        onChange={(e) => setLoginEmail(e.target.value)}
-                        className="w-full pl-9 pr-4 py-1.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-zinc-900 dark:text-zinc-100 font-mono"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-1">
-                      Console Password
-                    </label>
-                    <div className="relative">
-                      <Lock className="absolute left-3 top-2.5 h-3.5 w-3.5 text-zinc-500" />
-                      <input
-                        type={showPassword ? "text" : "password"}
-                        required
-                        placeholder="••••••••"
-                        value={loginPassword}
-                        onChange={(e) => setLoginPassword(e.target.value)}
-                        className="w-full pl-9 pr-9 py-1.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-zinc-900 dark:text-zinc-100"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-3 top-2.5 text-zinc-500 hover:text-zinc-300"
-                      >
-                        {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                      </button>
-                    </div>
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={authLoading}
-                    className="w-full mt-2 py-2 px-4 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg text-xs transition-colors flex items-center justify-center gap-1.5 disabled:opacity-70 disabled:pointer-events-none cursor-pointer"
-                  >
-                    {authLoading ? (
-                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Lock className="h-3.5 w-3.5" />
-                    )}
-                    Decrypt & Authenticate
-                  </button>
-                </form>
+                </>
               )}
-            </div>
-            
-            {/* Dark Mode toggle at bottom of Login */}
-            <div className="px-6 pb-6 text-center">
-              <button 
-                onClick={toggleTheme} 
-                className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-bold text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 transition-colors bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700/60 py-1 px-2.5 rounded-md cursor-pointer"
-              >
-                {theme === 'dark' ? (
-                  <>
-                    <Sun className="h-3 w-3 text-amber-500" />
-                    <span>Light Mode Accessibility</span>
-                  </>
-                ) : (
-                  <>
-                    <Moon className="h-3 w-3 text-blue-500" />
-                    <span>Dark Mode Accessibility</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </motion.div>
-        </div>
-      ) : (
-        // Authenticated Operations Dashboard Shell
-        <div className="flex-1 flex flex-col md:flex-row bg-zinc-50 dark:bg-zinc-950 transition-colors duration-150">
-          
-          {/* Side Control Rail (Responsive Navigation) */}
-          <aside className="w-full md:w-64 bg-zinc-100 dark:bg-zinc-900 border-b md:border-b-0 md:border-r border-zinc-200 dark:border-zinc-800 flex flex-col justify-between shrink-0">
-            <div>
-              {/* Profile Bar */}
-              <div className="p-4 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-100/30 dark:bg-zinc-950">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center shadow-lg shadow-blue-900/20 text-white font-bold text-sm shrink-0">
-                    {user.name.charAt(0).toUpperCase()}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-sm font-bold tracking-tight text-zinc-900 dark:text-white truncate">{user.name}</p>
-                    <p className="text-[10px] text-zinc-500 dark:text-zinc-400 truncate font-mono leading-none mt-0.5">{user.email}</p>
-                  </div>
+
+              {authMode === 'login' && (
+                <div>
+                  <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-wider mb-1.5">
+                    Email Address
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    value={loginEmail}
+                    onChange={(e) => setLoginEmail(e.target.value)}
+                    placeholder="e.g. user@mtos-drive.com"
+                    className="w-full px-3 py-2 text-sm rounded-lg bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 focus:outline-none focus:border-blue-500 transition-colors"
+                  />
                 </div>
-                
-                {/* Micro Metadata Indicator */}
-                <div className="mt-2.5 flex items-center gap-1.5 bg-zinc-50 dark:bg-zinc-950 p-1.5 rounded-md border border-zinc-200 dark:border-zinc-800/60">
-                  <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></div>
-                  <span className="text-[9px] uppercase tracking-wider font-bold text-zinc-500 dark:text-zinc-400 font-mono">Region: {user.country}</span>
+              )}
+
+              <div>
+                <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-wider mb-1.5">
+                  Password Key
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    value={authMode === 'login' ? loginPassword : signupPassword}
+                    onChange={(e) => authMode === 'login' ? setLoginPassword(e.target.value) : setSignupPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full pl-3 pr-10 py-2 text-sm rounded-lg bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 focus:outline-none focus:border-blue-500 transition-colors"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-2.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
                 </div>
               </div>
 
-              {/* Navigation Actions */}
-              <nav className="p-3 space-y-1">
-                <button
-                  onClick={() => setActiveTab('overview')}
-                  className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-md text-xs font-semibold border-l-2 transition-all cursor-pointer ${
-                    activeTab === 'overview'
-                      ? 'bg-zinc-200 dark:bg-zinc-850 text-blue-600 dark:text-blue-400 border-blue-500 shadow-xs'
-                      : 'border-transparent text-zinc-500 dark:text-zinc-400 hover:bg-zinc-200/50 dark:hover:bg-zinc-800/50 hover:text-zinc-900 dark:hover:text-zinc-100'
-                  }`}
-                >
-                  <Activity className="h-3.5 w-3.5" />
-                  Overview Console
-                </button>
-                <button
-                  onClick={() => setActiveTab('files')}
-                  className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-md text-xs font-semibold border-l-2 transition-all cursor-pointer ${
-                    activeTab === 'files'
-                      ? 'bg-zinc-200 dark:bg-zinc-850 text-blue-600 dark:text-blue-400 border-blue-500 shadow-xs'
-                      : 'border-transparent text-zinc-500 dark:text-zinc-400 hover:bg-zinc-200/50 dark:hover:bg-zinc-800/50 hover:text-zinc-900 dark:hover:text-zinc-100'
-                  }`}
-                >
-                  <Database className="h-3.5 w-3.5" />
-                  Sandbox Storage
-                </button>
-                <button
-                  onClick={() => setActiveTab('billing')}
-                  className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-md text-xs font-semibold border-l-2 transition-all cursor-pointer ${
-                    activeTab === 'billing'
-                      ? 'bg-zinc-200 dark:bg-zinc-850 text-blue-600 dark:text-blue-400 border-blue-500 shadow-xs'
-                      : 'border-transparent text-zinc-500 dark:text-zinc-400 hover:bg-zinc-200/50 dark:hover:bg-zinc-800/50 hover:text-zinc-900 dark:hover:text-zinc-100'
-                  }`}
-                >
-                  <Key className="h-3.5 w-3.5" />
-                  Billing & API Keys
-                </button>
-                <button
-                  onClick={() => setActiveTab('profile')}
-                  className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-md text-xs font-semibold border-l-2 transition-all cursor-pointer ${
-                    activeTab === 'profile'
-                      ? 'bg-zinc-200 dark:bg-zinc-850 text-blue-600 dark:text-blue-400 border-blue-500 shadow-xs'
-                      : 'border-transparent text-zinc-500 dark:text-zinc-400 hover:bg-zinc-200/50 dark:hover:bg-zinc-800/50 hover:text-zinc-900 dark:hover:text-zinc-100'
-                  }`}
-                >
-                  <User className="h-3.5 w-3.5" />
-                  Developer Token
-                </button>
-              </nav>
-            </div>
-
-            {/* Bottom Panel (Theme & Session management) */}
-            <div className="mt-auto p-3 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-100/30 dark:bg-zinc-900/40 space-y-2">
-              {/* Theme Toggle */}
               <button
-                onClick={toggleTheme}
-                className="w-full flex items-center justify-between px-3 py-1.5 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-md text-[11px] font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors shadow-xs cursor-pointer"
+                type="submit"
+                disabled={authLoading}
+                className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg text-xs tracking-wide shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
               >
-                <span className="text-zinc-500 dark:text-zinc-400">Appearance</span>
-                {theme === 'dark' ? (
-                  <span className="flex items-center gap-1 text-amber-400">
-                    <Sun className="h-3 w-3" /> Light
-                  </span>
+                {authLoading ? (
+                  <>
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    Please Wait...
+                  </>
                 ) : (
-                  <span className="flex items-center gap-1 text-blue-500">
-                    <Moon className="h-3 w-3" /> Dark
-                  </span>
+                  <>{authMode === 'login' ? 'Sign In to Drive' : 'Initialize Personal Workspace'}</>
                 )}
               </button>
+            </form>
+          </motion.div>
+        </div>
+      ) : (
+        // CLOUD DRIVE PLATFORM LAYOUT
+        <div 
+          className="flex-1 flex flex-col md:flex-row relative"
+          onDragEnter={handleDragEnter}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          {/* DRAG OVERLAY DROPMASK */}
+          <AnimatePresence>
+            {isDragging && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="absolute inset-0 bg-blue-600/10 dark:bg-blue-900/20 backdrop-blur-xs z-50 flex items-center justify-center border-4 border-dashed border-blue-500"
+              >
+                <div className="bg-white dark:bg-zinc-900 p-6 rounded-2xl shadow-xl border border-zinc-200 dark:border-zinc-800 max-w-sm text-center flex flex-col items-center gap-3">
+                  <div className="h-12 w-12 rounded-full bg-blue-500/15 flex items-center justify-center text-blue-500 animate-bounce">
+                    <Upload className="h-6 w-6" />
+                  </div>
+                  <h3 className="text-base font-bold text-zinc-900 dark:text-white">Drop to Upload</h3>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Release your files to store them inside this directory vault.
+                  </p>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-              {/* Logout button */}
+          {/* SIDEBAR FOR DESKTOP */}
+          <aside className="hidden md:flex flex-col w-64 bg-white dark:bg-zinc-900 border-r border-zinc-200 dark:border-zinc-800 p-5 gap-6 shrink-0">
+            {/* Brand Logo */}
+            <div className="flex items-center gap-3 px-1.5">
+              <div className="h-9 w-9 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-md">
+                <Cloud className="h-5 w-5" />
+              </div>
+              <div>
+                <span className="text-xs font-black uppercase tracking-wider text-blue-600 font-mono">
+                  MTOS Drive
+                </span>
+                <p className="text-[10px] text-zinc-400 dark:text-zinc-500 font-bold leading-none mt-0.5">Cloud Space</p>
+              </div>
+            </div>
+
+            {/* Quick Upload Button */}
+            <div className="relative">
+              <label className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg shadow-sm transition-all cursor-pointer select-none">
+                <Upload className="h-3.5 w-3.5" />
+                Upload New File
+                <input
+                  type="file"
+                  multiple
+                  onChange={handleFileInputChange}
+                  className="hidden"
+                />
+              </label>
+            </div>
+
+            {/* Nav Menu */}
+            <nav className="flex-1 space-y-1">
+              {[
+                { id: 'dashboard', label: 'Dashboard', icon: LayoutGrid },
+                { id: 'drive', label: 'My Drive', icon: HardDrive },
+                { id: 'starred', label: 'Starred Files', icon: Star },
+                { id: 'trash', label: 'Trash Bin', icon: Trash },
+                { id: 'profile', label: 'Storage Settings', icon: Settings },
+              ].map((item) => {
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      setActiveTab(item.id as any);
+                      if (item.id !== 'drive') {
+                        setCurrentFolderId(null); // Reset deep path
+                      }
+                    }}
+                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-semibold border-l-2 transition-all cursor-pointer ${
+                      activeTab === item.id
+                        ? 'bg-zinc-100 dark:bg-zinc-800 text-blue-600 dark:text-blue-400 border-blue-500 shadow-xs'
+                        : 'border-transparent text-zinc-500 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-850 hover:text-zinc-900 dark:hover:text-zinc-100'
+                    }`}
+                  >
+                    <Icon className="h-4 w-4 shrink-0" />
+                    {item.label}
+                  </button>
+                );
+              })}
+            </nav>
+
+            {/* Storage Progress Meter */}
+            <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 space-y-2">
+              <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+                <span>Storage space</span>
+                <span>{stats.percent.toFixed(1)}% Used</span>
+              </div>
+              <div className="h-2 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
+                <div 
+                  className={`h-full rounded-full transition-all duration-300 ${
+                    stats.percent > 85 ? 'bg-rose-500' : stats.percent > 60 ? 'bg-amber-500' : 'bg-blue-600'
+                  }`}
+                  style={{ width: `${stats.percent}%` }}
+                />
+              </div>
+              <p className="text-[10px] text-zinc-500 dark:text-zinc-400">
+                <strong>{formatSize(stats.totalSize)}</strong> of 100 MB free sandbox tier used.
+              </p>
+            </div>
+
+            {/* User Profile Quick Bar */}
+            <div className="border-t border-zinc-200 dark:border-zinc-800 pt-4 flex items-center justify-between gap-2.5">
+              <div className="flex items-center gap-2 overflow-hidden">
+                <div className="h-8 w-8 rounded-full bg-zinc-200 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 flex items-center justify-center font-bold text-xs shrink-0 uppercase text-blue-600 dark:text-blue-400">
+                  {user.name.charAt(0)}
+                </div>
+                <div className="overflow-hidden leading-tight">
+                  <h4 className="text-xs font-bold text-zinc-800 dark:text-zinc-100 truncate">{user.name}</h4>
+                  <p className="text-[10px] text-zinc-500 dark:text-zinc-400 truncate">{user.email}</p>
+                </div>
+              </div>
               <button
                 onClick={logOut}
-                className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500 hover:text-white border border-rose-500/15 rounded-md text-[11px] font-bold text-rose-500 transition-all active:scale-[0.98] cursor-pointer"
+                title="Log Out"
+                className="hover:bg-rose-500/10 hover:text-rose-600 p-1.5 rounded-lg text-zinc-400 cursor-pointer shrink-0 transition-colors"
               >
-                <LogOut className="h-3 w-3" />
-                Terminate Session
+                <LogOut className="h-4 w-4" />
               </button>
             </div>
           </aside>
 
-          {/* Core Content Area */}
-          <main className="flex-1 flex flex-col min-w-0 overflow-y-auto bg-zinc-50 dark:bg-zinc-950">
-            
-            {/* Top Dashboard Rail Header */}
-            <header className="sticky top-0 z-10 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-md border-b border-zinc-200 dark:border-zinc-800 px-6 py-3.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-blue-500 font-mono">
-                  Cloud Management Shell
-                </span>
-                <h1 className="text-base font-semibold tracking-tight text-zinc-900 dark:text-zinc-100 capitalize">
-                  {activeTab === 'overview' ? 'Operational Health Overview' : activeTab === 'files' ? 'Sandbox File Explorer' : activeTab === 'billing' ? 'Billing Operations & API Keygen' : 'Active JWT Token Session'}
-                </h1>
+          {/* MOBILE HEADER BAR */}
+          <header className="md:hidden flex items-center justify-between bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-6 py-3 shrink-0">
+            <div className="flex items-center gap-2">
+              <div className="h-8 w-8 rounded-lg bg-blue-600 flex items-center justify-center text-white">
+                <Cloud className="h-4 w-4" />
               </div>
+              <span className="text-xs font-black uppercase tracking-wider text-zinc-900 dark:text-white font-mono">
+                MTOS Drive
+              </span>
+            </div>
 
-              {/* Status Center */}
-              <div className="flex items-center gap-2.5">
-                <div className="flex items-center gap-1.5 bg-zinc-100/50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 py-1 px-2.5 rounded-md text-[10px] uppercase tracking-widest font-bold text-zinc-600 dark:text-zinc-400">
-                  <Activity className="h-3 w-3 text-emerald-500 animate-pulse" />
-                  <span>Cloud Gateway: Connected</span>
-                </div>
-                <div className="flex items-center gap-1.5 bg-zinc-100/50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 py-1 px-2.5 rounded-md text-[10px] font-mono font-bold text-zinc-600 dark:text-zinc-400">
-                  <span>API Status: 200 OK</span>
-                </div>
-              </div>
-            </header>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={toggleTheme}
+                className="hover:bg-zinc-100 dark:hover:bg-zinc-800 p-1.5 rounded-lg text-zinc-400"
+              >
+                {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              </button>
+              <button
+                onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                className="hover:bg-zinc-100 dark:hover:bg-zinc-800 p-1.5 rounded-lg text-zinc-400"
+              >
+                {isMobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+              </button>
+            </div>
+          </header>
 
-            {/* Dynamic Content Panel */}
-            <div className="p-6 max-w-7xl w-full mx-auto space-y-5 text-zinc-900 dark:text-zinc-200">
-              
-              {activeTab === 'overview' && (
-                // OVERVIEW TAB
+          {/* MOBILE NAVIGATION MENU */}
+          <AnimatePresence>
+            {isMobileMenuOpen && (
+              <>
+                {/* Backdrop overlay */}
                 <motion.div
-                  initial={{ opacity: 0, y: 15 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="space-y-4"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="md:hidden fixed inset-0 bg-black/60 backdrop-blur-xs z-40"
+                />
+
+                {/* Left-to-right drawer panel */}
+                <motion.div
+                  initial={{ x: '-100%' }}
+                  animate={{ x: 0 }}
+                  exit={{ x: '-100%' }}
+                  transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+                  className="md:hidden fixed inset-y-0 left-0 w-72 max-w-[80vw] bg-white dark:bg-zinc-900 border-r border-zinc-200 dark:border-zinc-800 flex flex-col z-50 p-5 shadow-2xl"
                 >
-                  {/* Stats Bento Grid */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                    
-                    {/* Stat Card 1 */}
-                    <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-xl flex items-start justify-between shadow-xs hover:border-zinc-300 dark:hover:border-zinc-700 transition-colors duration-150">
-                      <div className="space-y-1">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 font-sans mb-1">
-                          Allocated Sandbox Files
-                        </p>
-                        <h3 className="text-2xl font-bold text-zinc-900 dark:text-white font-mono leading-none py-1">
-                          {listLoading ? (
-                            <RefreshCw className="h-5 w-5 animate-spin text-zinc-400" />
-                          ) : (
-                            files.length
-                          )}
-                        </h3>
-                        <p className="text-[11px] text-zinc-500 dark:text-zinc-400">Total stored entities</p>
+                  {/* Drawer Header */}
+                  <div className="flex items-center justify-between border-b border-zinc-150 dark:border-zinc-850 pb-4 mb-5">
+                    <div className="flex items-center gap-2.5">
+                      <div className="h-8 w-8 rounded-lg bg-blue-600 flex items-center justify-center text-white">
+                        <Cloud className="h-4 w-4" />
                       </div>
-                      <div className="w-8 h-8 bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-blue-500 rounded flex items-center justify-center shrink-0 shadow-xs">
-                        <HardDrive className="h-4 w-4" />
+                      <div>
+                        <span className="text-xs font-black uppercase tracking-wider text-blue-600 font-mono">
+                          MTOS Drive
+                        </span>
+                        <p className="text-[9px] text-zinc-400 dark:text-zinc-500 font-bold leading-none mt-0.5">Cloud Space</p>
                       </div>
                     </div>
-
-                    {/* Stat Card 2 */}
-                    <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-xl flex items-start justify-between shadow-xs hover:border-zinc-300 dark:hover:border-zinc-700 transition-colors duration-150">
-                      <div className="space-y-1">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 font-sans mb-1">
-                          Billing API Key
-                        </p>
-                        <div className="h-8 flex items-center py-1">
-                          {apiKey ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-[10px] font-mono font-bold uppercase tracking-wide">
-                              <Check className="h-2.5 w-2.5" /> Active Bind
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-500 text-[10px] font-semibold">
-                              Unallocated Key
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-[11px] text-zinc-500 dark:text-zinc-400">Security hash string</p>
-                      </div>
-                      <div className="w-8 h-8 bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-blue-500 rounded flex items-center justify-center shrink-0 shadow-xs">
-                        <Key className="h-4 w-4" />
-                      </div>
-                    </div>
-
-                    {/* Stat Card 3 */}
-                    <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-xl flex items-start justify-between shadow-xs hover:border-zinc-300 dark:hover:border-zinc-700 transition-colors duration-150">
-                      <div className="space-y-1">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 font-sans mb-1">
-                          Accumulated Transactions
-                        </p>
-                        <h3 className="text-2xl font-bold text-zinc-900 dark:text-white font-mono leading-none py-1">
-                          {logsLoading ? (
-                            <RefreshCw className="h-5 w-5 animate-spin text-zinc-400" />
-                          ) : (
-                            billingLogs.length
-                          )}
-                        </h3>
-                        <p className="text-[11px] text-zinc-500 dark:text-zinc-400">Billing operations tracked</p>
-                      </div>
-                      <div className="w-8 h-8 bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-blue-500 rounded flex items-center justify-center shrink-0 shadow-xs">
-                        <FileText className="h-4 w-4" />
-                      </div>
-                    </div>
-
-                    {/* Stat Card 4 */}
-                    <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-xl flex items-start justify-between shadow-xs hover:border-zinc-300 dark:hover:border-zinc-700 transition-colors duration-150">
-                      <div className="space-y-1">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 font-sans mb-1">
-                          Estimated Cost Ratio
-                        </p>
-                        <h3 className="text-2xl font-bold text-zinc-900 dark:text-white font-mono leading-none py-1">
-                          $0.00
-                        </h3>
-                        <p className="text-[11px] text-zinc-500 dark:text-zinc-400">Active server bandwidth cost</p>
-                      </div>
-                      <div className="w-8 h-8 bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-blue-500 rounded flex items-center justify-center shrink-0 shadow-xs">
-                        <DollarSign className="h-4 w-4" />
-                      </div>
-                    </div>
-
+                    <button
+                      onClick={() => setIsMobileMenuOpen(false)}
+                      className="hover:bg-zinc-100 dark:hover:bg-zinc-800 p-1.5 rounded-lg text-zinc-400 cursor-pointer"
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
                   </div>
 
-                  {/* System Greeting Card */}
-                  <div className="bg-white dark:bg-zinc-900 p-5 rounded-xl border border-zinc-200 dark:border-zinc-800 border-l-4 border-l-blue-600 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-xs">
-                    <div className="space-y-1">
-                      <h2 className="text-base font-bold text-zinc-900 dark:text-white">
-                        Hello, {user.name}!
-                      </h2>
-                      <p className="text-zinc-600 dark:text-zinc-400 text-xs max-w-2xl leading-relaxed">
-                        Your custom cloud environment is fully responsive and connected. Easily manage secure sandboxed file uploads and configure developer integrations instantly.
+                  <div className="flex-1 flex flex-col gap-5 overflow-y-auto">
+                    {/* Quick Upload Button */}
+                    <div className="relative">
+                      <label className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg shadow-sm transition-all cursor-pointer select-none">
+                        <Upload className="h-3.5 w-3.5" />
+                        Upload New File
+                        <input
+                          type="file"
+                          multiple
+                          onChange={handleFileInputChange}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+
+                    {/* Nav Items */}
+                    <nav className="space-y-1">
+                      {[
+                        { id: 'dashboard', label: 'Dashboard', icon: LayoutGrid },
+                        { id: 'drive', label: 'My Drive', icon: HardDrive },
+                        { id: 'starred', label: 'Starred Files', icon: Star },
+                        { id: 'trash', label: 'Trash Bin', icon: Trash },
+                        { id: 'profile', label: 'Storage Settings', icon: Settings },
+                      ].map((item) => {
+                        const Icon = item.icon;
+                        return (
+                          <button
+                            key={item.id}
+                            onClick={() => {
+                              setActiveTab(item.id as any);
+                              setIsMobileMenuOpen(false);
+                              if (item.id !== 'drive') {
+                                setCurrentFolderId(null); // Reset deep path
+                              }
+                            }}
+                            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold border-l-2 transition-all cursor-pointer ${
+                              activeTab === item.id
+                                ? 'bg-zinc-100 dark:bg-zinc-800 text-blue-600 dark:text-blue-400 border-blue-500 shadow-xs'
+                                : 'border-transparent text-zinc-500 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-850 hover:text-zinc-900 dark:hover:text-zinc-100'
+                            }`}
+                          >
+                            <Icon className="h-4 w-4 shrink-0" />
+                            {item.label}
+                          </button>
+                        );
+                      })}
+                    </nav>
+
+                    {/* Storage Progress Meter */}
+                    <div className="mt-auto bg-zinc-50 dark:bg-zinc-950 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 space-y-2">
+                      <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+                        <span>Storage space</span>
+                        <span>{stats.percent.toFixed(1)}% Used</span>
+                      </div>
+                      <div className="h-2 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
+                        <div 
+                          className={`h-full rounded-full transition-all duration-300 ${
+                            stats.percent > 85 ? 'bg-rose-500' : stats.percent > 60 ? 'bg-amber-500' : 'bg-blue-600'
+                          }`}
+                          style={{ width: `${stats.percent}%` }}
+                        />
+                      </div>
+                      <p className="text-[10px] text-zinc-500 dark:text-zinc-400 font-mono">
+                        <strong>{formatSize(stats.totalSize)}</strong> of {formatSize(STORAGE_LIMIT)} cloud quota used.
                       </p>
                     </div>
-                    <div className="flex gap-2 shrink-0">
-                      <button
-                        onClick={() => setActiveTab('files')}
-                        className="py-1.5 px-3 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-md text-xs shadow-xs transition-colors active:scale-[0.98] cursor-pointer"
-                      >
-                        Launch Storage
-                      </button>
-                      <button
-                        onClick={() => setActiveTab('billing')}
-                        className="py-1.5 px-3 bg-zinc-100 dark:bg-zinc-850 hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200 font-semibold rounded-md text-xs border border-zinc-200 dark:border-zinc-700 transition-colors active:scale-[0.98] cursor-pointer"
-                      >
-                        Access API Center
-                      </button>
+                  </div>
+
+                  {/* Drawer Footer / Profile section */}
+                  <div className="border-t border-zinc-200 dark:border-zinc-800 pt-4 mt-5 flex items-center justify-between gap-2.5 shrink-0">
+                    <div className="flex items-center gap-2 overflow-hidden">
+                      <div className="h-8 w-8 rounded-full bg-zinc-200 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 flex items-center justify-center font-bold text-xs shrink-0 uppercase text-blue-600 dark:text-blue-400">
+                        {user.name.charAt(0)}
+                      </div>
+                      <div className="overflow-hidden leading-tight">
+                        <h4 className="text-xs font-bold text-zinc-800 dark:text-zinc-100 truncate">{user.name}</h4>
+                        <p className="text-[10px] text-zinc-500 dark:text-zinc-400 truncate">{user.email}</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={logOut}
+                      title="Log Out"
+                      className="hover:bg-rose-500/10 hover:text-rose-600 p-1.5 rounded-lg text-zinc-400 cursor-pointer shrink-0 transition-colors"
+                    >
+                      <LogOut className="h-4 w-4" />
+                    </button>
+                  </div>
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
+
+          {/* MAIN EXPLORER AREA */}
+          <main className="flex-1 flex flex-col min-w-0 bg-zinc-50 dark:bg-zinc-950 overflow-y-auto">
+            
+            {/* CONSOLE STATUS BAR FOR DESKTOP */}
+            <div className="hidden md:flex items-center justify-between px-8 py-3.5 bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 shrink-0">
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider font-mono">
+                  Drive Status: ACTIVE SECURE CLOUD SYNC
+                </span>
+              </div>
+
+              <div className="flex items-center gap-4">
+                {/* Theme Toggle Button */}
+                <button
+                  onClick={toggleTheme}
+                  className="hover:bg-zinc-100 dark:hover:bg-zinc-800 p-1.5 rounded-lg text-zinc-400 cursor-pointer transition-colors"
+                >
+                  {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                </button>
+
+                <div className="text-xs font-mono text-zinc-500">
+                  Logged in: <strong className="text-zinc-700 dark:text-zinc-300 font-bold">{user.email}</strong>
+                </div>
+              </div>
+            </div>
+
+            {/* IN-PAGE CONTENT WRAPPER */}
+            <div className="flex-1 p-6 md:p-8 space-y-6">
+              
+              {/* DASHBOARD VIEW */}
+              {activeTab === 'dashboard' && (
+                <div className="space-y-6">
+                  {/* Greeting banner */}
+                  <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-2xl p-6 shadow-md relative overflow-hidden">
+                    <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
+                      <Cloud className="h-40 w-40" />
+                    </div>
+                    <div className="max-w-xl space-y-1.5">
+                      <span className="text-[10px] font-black uppercase tracking-widest bg-blue-500/30 text-blue-100 px-2 py-0.5 rounded-full font-mono">
+                        Welcome Back
+                      </span>
+                      <h2 className="text-lg md:text-xl font-extrabold tracking-tight">
+                        Hello, {user.name}!
+                      </h2>
+                      <p className="text-blue-100 text-xs leading-relaxed max-w-lg">
+                        Keep your sensitive documents, photos, and team files organized. Drag and drop any asset to encrypt and sync to secure storage.
+                      </p>
+                      <div className="pt-2 flex gap-2">
+                        <button
+                          onClick={() => setActiveTab('drive')}
+                          className="py-1 px-3 bg-white text-blue-600 hover:bg-zinc-100 font-bold text-xs rounded-lg transition-colors cursor-pointer"
+                        >
+                          Browse Files
+                        </button>
+                        <button
+                          onClick={() => setIsCreateFolderOpen(true)}
+                          className="py-1 px-3 bg-blue-500 text-white hover:bg-blue-400 font-bold text-xs rounded-lg transition-colors border border-blue-400 cursor-pointer"
+                        >
+                          Create Folder
+                        </button>
+                      </div>
                     </div>
                   </div>
 
-                  {/* Quick-Stats Logs & Details split view */}
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                    {/* Left Column: Recent Activity Logs */}
-                    <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-xl shadow-xs lg:col-span-2">
-                      <div className="flex items-center justify-between pb-2.5 border-b border-zinc-200 dark:border-zinc-800/80 mb-3">
-                        <h4 className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
-                          <Clock className="h-3.5 w-3.5 text-blue-500" /> Recent Cloud Operations
-                        </h4>
+                  {/* Storage Stats Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    {[
+                      {
+                        title: 'Images',
+                        count: stats.imagesCount,
+                        size: stats.imagesSize,
+                        color: 'bg-rose-500',
+                        bg: 'bg-rose-50 dark:bg-rose-950/10',
+                        border: 'border-rose-100 dark:border-rose-950/30',
+                        icon: FileImage
+                      },
+                      {
+                        title: 'Documents',
+                        count: stats.docsCount,
+                        size: stats.docsSize,
+                        color: 'bg-blue-500',
+                        bg: 'bg-blue-50 dark:bg-blue-950/10',
+                        border: 'border-blue-100 dark:border-blue-950/30',
+                        icon: FileText
+                      },
+                      {
+                        title: 'Media Files',
+                        count: stats.mediaCount,
+                        size: stats.mediaSize,
+                        color: 'bg-amber-500',
+                        bg: 'bg-amber-50 dark:bg-amber-950/10',
+                        border: 'border-amber-100 dark:border-amber-950/30',
+                        icon: FileVideo
+                      },
+                      {
+                        title: 'Others & Archives',
+                        count: stats.otherCount,
+                        size: stats.otherSize,
+                        color: 'bg-zinc-500',
+                        bg: 'bg-zinc-100/50 dark:bg-zinc-900/40',
+                        border: 'border-zinc-200 dark:border-zinc-800',
+                        icon: File
+                      }
+                    ].map((card) => {
+                      const Icon = card.icon;
+                      return (
                         <button
-                          onClick={fetchBillingLogs}
-                          className="text-[10px] text-blue-500 hover:text-blue-400 font-bold uppercase tracking-wider flex items-center gap-1 transition-colors cursor-pointer"
+                          key={card.title}
+                          onClick={() => setSelectedCategory(card.title)}
+                          className={`p-4 rounded-xl border ${card.bg} ${card.border} flex items-center justify-between text-left cursor-pointer hover:shadow-md transition-all group`}
                         >
-                          <RefreshCw className={`h-3 w-3 ${logsLoading ? 'animate-spin' : ''}`} /> Refresh
+                          <div className="space-y-1">
+                            <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest block group-hover:text-blue-500 transition-colors">
+                              {card.title}
+                            </span>
+                            <h3 className="text-lg font-bold text-zinc-800 dark:text-zinc-100">
+                              {card.count} {card.count === 1 ? 'file' : 'files'}
+                            </h3>
+                            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                              Size: <strong>{formatSize(card.size)}</strong>
+                            </p>
+                          </div>
+                          <div className={`h-10 w-10 rounded-lg ${card.color}/10 border ${card.color}/20 flex items-center justify-center text-zinc-900 dark:text-zinc-100 group-hover:scale-110 transition-transform`}>
+                            <Icon className="h-5 w-5" />
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Dashboard Explorer Preview */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    {/* Recent Uploads block */}
+                    <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-5 rounded-xl shadow-xs lg:col-span-2 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <h3 className="text-xs font-bold text-zinc-900 dark:text-zinc-100 uppercase tracking-wider">
+                            Recent Uploads Catalog
+                          </h3>
+                          <p className="text-[11px] text-zinc-500 dark:text-zinc-400">The last assets synced to your secure cloud space.</p>
+                        </div>
+                        <button
+                          onClick={() => setActiveTab('drive')}
+                          className="text-[11px] text-blue-500 hover:underline font-bold"
+                        >
+                          View All
                         </button>
                       </div>
 
-                      {logsLoading ? (
-                        <div className="py-12 flex flex-col items-center justify-center text-zinc-400 gap-2">
-                          <RefreshCw className="h-5 w-5 animate-spin text-blue-500" />
-                          <span className="text-xs font-medium">Fetching transaction ledger...</span>
-                        </div>
-                      ) : billingLogs.length === 0 ? (
-                        <div className="py-12 text-center text-zinc-400 text-xs">
-                          No recent transactions recorded on this cloud node.
+                      {files.filter(f => !f.isTrashed).length === 0 ? (
+                        <div className="py-12 flex flex-col items-center text-center gap-2.5">
+                          <div className="h-10 w-10 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-zinc-400">
+                            <Cloud className="h-5 w-5 animate-pulse" />
+                          </div>
+                          <div>
+                            <h4 className="text-xs font-bold text-zinc-800 dark:text-zinc-200">No active files found</h4>
+                            <p className="text-[10px] text-zinc-500 dark:text-zinc-400 max-w-xs mt-0.5">
+                              Drag and drop a file or folder into My Drive root to index it here.
+                            </p>
+                          </div>
                         </div>
                       ) : (
-                        <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-                          {billingLogs.slice(0, 4).map((log, index) => (
-                            <div
-                              key={log.id || index}
-                              className="p-2.5 bg-zinc-50 dark:bg-zinc-950/50 rounded-lg border border-zinc-200 dark:border-zinc-800/60 flex items-center justify-between text-[11px] hover:bg-zinc-100/55 dark:hover:bg-zinc-800/20 transition-all"
-                            >
-                              <div className="flex items-center gap-2.5">
-                                <div className="p-1.5 bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-blue-500 rounded-md shrink-0 shadow-xs">
-                                  <Terminal className="h-3.5 w-3.5" />
+                        <div className="divide-y divide-zinc-200 dark:divide-zinc-800/40">
+                          {files
+                            .filter(f => !f.isTrashed)
+                            .slice(0, 4)
+                            .map((file) => (
+                              <div
+                                key={file.id}
+                                className="py-2.5 flex items-center justify-between gap-3 group hover:bg-zinc-50 dark:hover:bg-zinc-850 px-2 rounded-lg transition-all"
+                              >
+                                <div className="flex items-center gap-2.5 overflow-hidden">
+                                  {getFileIcon(file.type)}
+                                  <div className="overflow-hidden leading-tight">
+                                    <h4 className="text-xs font-bold text-zinc-800 dark:text-zinc-100 truncate group-hover:text-blue-500 transition-colors">
+                                      {file.name}
+                                    </h4>
+                                    <p className="text-[10px] text-zinc-500 dark:text-zinc-400 font-mono mt-0.5">
+                                      {formatSize(file.size)} • {new Date(file.uploadedAt).toLocaleString()}
+                                    </p>
+                                  </div>
                                 </div>
-                                <div className="min-w-0">
-                                  <p className="font-semibold text-zinc-700 dark:text-zinc-300 truncate font-mono">
-                                    {log.action || 'Unknown Operation'}
-                                  </p>
-                                  <p className="text-[10px] text-zinc-400 font-mono">
-                                    {log.timestamp || 'N/A'}
-                                  </p>
+
+                                <div className="flex gap-1">
+                                  <button
+                                    onClick={() => toggleStar(file.id, !file.isStarred)}
+                                    className={`p-1.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-800 cursor-pointer ${
+                                      file.isStarred ? 'text-amber-500' : 'text-zinc-400'
+                                    }`}
+                                  >
+                                    <Star className="h-3.5 w-3.5 fill-current" />
+                                  </button>
+                                  <button
+                                    onClick={() => triggerDownload(file)}
+                                    className="p-1.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 cursor-pointer"
+                                  >
+                                    <Download className="h-3.5 w-3.5" />
+                                  </button>
                                 </div>
                               </div>
-                              <div className="text-right shrink-0">
-                                <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-500 dark:text-emerald-400 text-[9px] border border-emerald-500/20 rounded-full uppercase tracking-wider font-bold">
-                                  SUCCESS
+                            ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Quick navigation and folder directory layout */}
+                    <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-5 rounded-xl shadow-xs space-y-4">
+                      <div>
+                        <h3 className="text-xs font-bold text-zinc-900 dark:text-zinc-100 uppercase tracking-wider">
+                          Quick Folder Directory
+                        </h3>
+                        <p className="text-[11px] text-zinc-500 dark:text-zinc-400">Access virtual storage folder groups.</p>
+                      </div>
+
+                      {folders.length === 0 ? (
+                        <div className="py-8 flex flex-col items-center justify-center text-center gap-2 text-zinc-400">
+                          <FolderPlus className="h-8 w-8 text-zinc-300 dark:text-zinc-700" />
+                          <p className="text-[11px]">No custom folders yet.</p>
+                          <button
+                            onClick={() => setIsCreateFolderOpen(true)}
+                            className="text-[11px] text-blue-500 font-bold hover:underline"
+                          >
+                            Create standard folder now
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="space-y-1.5 max-h-[220px] overflow-y-auto">
+                          {folders.slice(0, 5).map((f) => (
+                            <button
+                              key={f.id}
+                              onClick={() => {
+                                setCurrentFolderId(f.id);
+                                setActiveTab('drive');
+                              }}
+                              className="w-full flex items-center justify-between p-2 rounded-lg bg-zinc-50 dark:bg-zinc-950 hover:bg-zinc-100 dark:hover:bg-zinc-900 border border-zinc-200/50 dark:border-zinc-850 text-left transition-all group"
+                            >
+                              <div className="flex items-center gap-2">
+                                <Folder className="h-4 w-4 text-blue-500 shrink-0 fill-current" />
+                                <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 truncate group-hover:text-blue-500 transition-colors">
+                                  {f.name}
                                 </span>
+                              </div>
+                              <span className="text-[10px] font-mono text-zinc-400">
+                                {getFolderFilesCount(f.id)} items
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* MY DRIVE (FILE EXPLORER) VIEW */}
+              {activeTab === 'drive' && (
+                <div className="space-y-5">
+                  
+                  {/* File browser top actions bar */}
+                  <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-xl shadow-xs flex flex-col gap-4">
+                    
+                    {/* Row 1: Search & sorting */}
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      {/* Live search bar */}
+                      <div className="flex-1 relative">
+                        <Search className="absolute left-3 top-2.5 h-4 w-4 text-zinc-400" />
+                        <input
+                          type="text"
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          placeholder="Search files by name..."
+                          className="w-full pl-9 pr-4 py-2 text-xs rounded-lg bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 focus:outline-none focus:border-blue-500 transition-colors"
+                        />
+                      </div>
+
+                      {/* Sorting & Layout mode */}
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={sortBy}
+                          onChange={(e) => setSortBy(e.target.value as any)}
+                          className="px-3 py-2 text-xs rounded-lg bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 focus:outline-none"
+                        >
+                          <option value="date-desc">Newest Uploads</option>
+                          <option value="date-asc">Oldest Uploads</option>
+                          <option value="name-asc">Name (A - Z)</option>
+                          <option value="name-desc">Name (Z - A)</option>
+                          <option value="size-desc">Largest Size</option>
+                          <option value="size-asc">Smallest Size</option>
+                        </select>
+
+                        {/* Layout grid vs list toggle */}
+                        <div className="flex items-center border border-zinc-200 dark:border-zinc-800 rounded-lg p-0.5 bg-zinc-50 dark:bg-zinc-950">
+                          <button
+                            onClick={() => setViewMode('grid')}
+                            className={`p-1.5 rounded-md ${
+                              viewMode === 'grid' ? 'bg-white dark:bg-zinc-800 text-blue-500 shadow-xs' : 'text-zinc-400'
+                            }`}
+                            title="Grid Layout"
+                          >
+                            <Grid className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            onClick={() => setViewMode('list')}
+                            className={`p-1.5 rounded-md ${
+                              viewMode === 'list' ? 'bg-white dark:bg-zinc-800 text-blue-500 shadow-xs' : 'text-zinc-400'
+                            }`}
+                            title="List Layout"
+                          >
+                            <List className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Row 2: Breadcrumbs path & Quick Action buttons */}
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2.5 border-t border-zinc-100 dark:border-zinc-800/60">
+                      
+                      {/* Breadcrumbs directory navigation */}
+                      <div className="flex items-center gap-1 text-xs">
+                        <button
+                          onClick={() => setCurrentFolderId(null)}
+                          className={`hover:text-blue-500 font-bold transition-colors cursor-pointer ${
+                            currentFolderId === null ? 'text-zinc-900 dark:text-white' : 'text-zinc-500'
+                          }`}
+                        >
+                          My Drive
+                        </button>
+
+                        {currentFolderId !== null && (
+                          <>
+                            <ChevronRight className="h-3 w-3 text-zinc-400" />
+                            <span className="font-bold text-zinc-900 dark:text-white">
+                              {folders.find(f => f.id === currentFolderId)?.name || 'Folder'}
+                            </span>
+                          </>
+                        )}
+                      </div>
+
+                      {/* Operational buttons */}
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setIsCreateFolderOpen(true)}
+                          className="py-1.5 px-3 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-850 dark:hover:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 font-bold rounded-lg text-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                        >
+                          <FolderPlus className="h-3.5 w-3.5" />
+                          New Folder
+                        </button>
+                        <label className="py-1.5 px-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-xs select-none">
+                          <Upload className="h-3.5 w-3.5" />
+                          Upload File
+                          <input type="file" multiple onChange={handleFileInputChange} className="hidden" />
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* FOLDERS DIRECTORY MAP GRID (ONLY at ROOT level, or disable when deep folder exploration) */}
+                  {currentFolderId === null && (
+                    <div className="space-y-3">
+                      <h3 className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest font-mono">
+                        Virtual Folders
+                      </h3>
+                      {folders.length === 0 ? (
+                        <p className="text-xs text-zinc-500 dark:text-zinc-400 italic">No storage folders defined. Click &quot;New Folder&quot; to begin grouping.</p>
+                      ) : (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                          {folders.map((f) => (
+                            <div
+                              key={f.id}
+                              className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 flex flex-col justify-between hover:border-blue-500/50 hover:shadow-md transition-all group"
+                            >
+                              <div
+                                onClick={() => setCurrentFolderId(f.id)}
+                                className="flex-1 cursor-pointer"
+                              >
+                                <div className="h-9 w-9 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-500 group-hover:bg-blue-500 group-hover:text-white transition-all mb-2.5">
+                                  <Folder className="h-5 w-5 fill-current" />
+                                </div>
+                                <h4 className="text-xs font-bold text-zinc-800 dark:text-zinc-200 truncate group-hover:text-blue-500 transition-colors">
+                                  {f.name}
+                                </h4>
+                                <p className="text-[10px] text-zinc-400 dark:text-zinc-500 font-mono mt-0.5">
+                                  {getFolderFilesCount(f.id)} files • {formatSize(getFolderFilesSize(f.id))}
+                                </p>
+                              </div>
+
+                              <div className="flex items-center justify-end pt-2 border-t border-zinc-100 dark:border-zinc-850/60 mt-2">
+                                <button
+                                  onClick={() => deleteFolder(f.id)}
+                                  className="text-zinc-400 hover:text-rose-500 hover:bg-rose-500/10 p-1 rounded transition-all cursor-pointer"
+                                  title="Delete Folder"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </button>
                               </div>
                             </div>
                           ))}
                         </div>
                       )}
                     </div>
+                  )}
 
-                    {/* Right Column: Node Connection Metadata */}
-                    <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-xl shadow-xs">
-                      <h4 className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5 pb-2.5 border-b border-zinc-200 dark:border-zinc-800/80 mb-3">
-                        <Terminal className="h-3.5 w-3.5 text-blue-500" /> Sandbox Node Specs
-                      </h4>
-                      <div className="space-y-2.5 text-xs font-mono">
-                        <div className="flex justify-between py-1.5 border-b border-zinc-200 dark:border-zinc-800/40 text-[11px]">
-                          <span className="text-zinc-500 dark:text-zinc-400">Container Root</span>
-                          <span className="text-zinc-800 dark:text-zinc-200">/storage/users/</span>
-                        </div>
-                        <div className="flex justify-between py-1.5 border-b border-zinc-200 dark:border-zinc-800/40 text-[11px]">
-                          <span className="text-zinc-500 dark:text-zinc-400">Sandbox Shell</span>
-                          <span className="text-zinc-800 dark:text-zinc-200">Linux container</span>
-                        </div>
-                        <div className="flex justify-between py-1.5 border-b border-zinc-200 dark:border-zinc-800/40 text-[11px]">
-                          <span className="text-zinc-500 dark:text-zinc-400">Gateway Port</span>
-                          <span className="text-zinc-800 dark:text-zinc-200">443 TLS Secure</span>
-                        </div>
-                        <div className="flex justify-between py-1.5 border-b border-zinc-200 dark:border-zinc-800/40 text-[11px]">
-                          <span className="text-zinc-500 dark:text-zinc-400">JWT Cipher</span>
-                          <span className="text-zinc-800 dark:text-zinc-200 font-sans truncate max-w-[120px]">RS256 algorithm</span>
-                        </div>
-                        <div className="flex justify-between py-1.5 text-[11px]">
-                          <span className="text-zinc-500 dark:text-zinc-400">IP Host</span>
-                          <span className="text-zinc-800 dark:text-zinc-200">api.cloud.mtos-org.site</span>
-                        </div>
-                      </div>
+                  {/* FILES SECTION */}
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest font-mono">
+                        {currentFolderId === null ? 'All Files (Root)' : 'Files inside this folder'}
+                      </h3>
+                      <span className="text-[10px] font-mono text-zinc-500">{filteredFiles.length} item(s)</span>
                     </div>
-                  </div>
-                </motion.div>
-              )}
 
-              {activeTab === 'files' && (
-                // FILES STORAGE TAB
-                <motion.div
-                  initial={{ opacity: 0, y: 15 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="space-y-4"
-                >
-                  <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-xl shadow-xs">
-                    <h3 className="text-sm font-bold text-zinc-900 dark:text-white mb-1">
-                      Upload Files to Cloud Sandbox
-                    </h3>
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-4">
-                      Select or drop files to write directly into your dedicated and isolated partition: <code className="bg-zinc-100 dark:bg-zinc-950 px-1.5 py-0.5 rounded text-[11px] font-mono">/storage/users/{"{id}"}/</code>
-                    </p>
-
-                    {/* Drag & Drop Zone */}
-                    <div
-                      onDragEnter={handleDrag}
-                      onDragOver={handleDrag}
-                      onDragLeave={handleDrag}
-                      onDrop={handleDrop}
-                      onClick={() => fileInputRef.current?.click()}
-                      className={`relative border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-2 ${
-                        dragActive
-                          ? 'border-blue-500 bg-blue-500/5'
-                          : 'border-zinc-200 dark:border-zinc-800 hover:border-blue-500/55 hover:bg-zinc-50/50 dark:hover:bg-zinc-800/20'
-                      }`}
-                    >
-                      <input
-                        type="file"
-                        ref={fileInputRef}
-                        onChange={handleFileChange}
-                        className="hidden"
-                      />
-                      <div className={`h-10 w-10 rounded-full flex items-center justify-center transition-transform duration-200 ${
-                        uploadLoading ? 'bg-blue-500/10 text-blue-500 animate-pulse' : 'bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-800 text-zinc-400'
-                      }`}>
-                        <Upload className={`h-5 w-5 ${uploadLoading ? 'animate-bounce' : ''}`} />
-                      </div>
-                      
-                      {uploadLoading ? (
-                        <div className="space-y-1">
-                          <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">Writing byte arrays safely...</p>
-                          <p className="text-[10px] text-zinc-400">Creating chunked sandbox streams</p>
+                    {filteredFiles.length === 0 ? (
+                      <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 py-16 px-4 rounded-xl text-center flex flex-col items-center gap-3">
+                        <div className="h-12 w-12 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-zinc-400">
+                          <Cloud className="h-6 w-6" />
                         </div>
-                      ) : (
-                        <div className="space-y-1">
-                          <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
-                            Drag & Drop File Here, or <span className="text-blue-500 hover:underline">Browse Storage</span>
-                          </p>
-                          <p className="text-[10px] text-zinc-400">
-                            Supports binary, images, pdf, logs, and datasets up to 50MB
+                        <div>
+                          <h4 className="text-xs font-bold text-zinc-800 dark:text-zinc-100">Empty Directory View</h4>
+                          <p className="text-[11px] text-zinc-500 dark:text-zinc-400 max-w-sm mt-0.5">
+                            This directory segment contains no files. Upload a file or drop one onto the viewport to sync storage.
                           </p>
                         </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Sandbox File Index list */}
-                  <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-xs overflow-hidden">
-                    {/* Header Controls */}
-                    <div className="p-4 border-b border-zinc-200 dark:border-zinc-800 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-zinc-100/20 dark:bg-zinc-900/40">
-                      <div>
-                        <h4 className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
-                          <Database className="h-3.5 w-3.5 text-blue-500" /> Sandboxed Directory Index
-                        </h4>
-                        <p className="text-[11px] text-zinc-400 mt-0.5">Isolated log-verified assets matching active user profile</p>
                       </div>
-
-                      {/* Search and Action */}
-                      <div className="flex items-center gap-2">
-                        <div className="relative">
-                          <Search className="absolute left-2.5 top-2 h-3 w-3 text-zinc-400" />
-                          <input
-                            type="text"
-                            placeholder="Filter files..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="pl-8 pr-3 py-1 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-md text-[11px] focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 dark:text-white"
-                          />
-                        </div>
-                        <button
-                          onClick={fetchFiles}
-                          disabled={listLoading}
-                          className="p-1.5 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 rounded-md transition-colors text-zinc-500 hover:text-zinc-800 disabled:opacity-50 shrink-0 cursor-pointer"
-                        >
-                          <RefreshCw className={`h-3 w-3 ${listLoading ? 'animate-spin' : ''}`} />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Table View */}
-                    <div className="overflow-x-auto">
-                      {listLoading ? (
-                        <div className="py-12 flex flex-col items-center justify-center text-zinc-400 gap-2">
-                          <RefreshCw className="h-6 w-6 animate-spin text-blue-500" />
-                          <span className="text-xs font-medium">Indexing isolation sandbox logs...</span>
-                        </div>
-                      ) : filteredFiles.length === 0 ? (
-                        <div className="py-12 text-center text-zinc-400 text-xs max-w-sm mx-auto space-y-2">
-                          <File className="h-8 w-8 text-zinc-300 dark:text-zinc-800 mx-auto" />
-                          <p className="font-semibold text-zinc-700 dark:text-zinc-300">Sandbox partition is empty</p>
-                          <p className="text-[11px]">Any uploaded files will list here via real-time JWT mapping logs.</p>
-                        </div>
-                      ) : (
-                        <table className="w-full text-left border-collapse text-[11px]">
-                          <thead>
-                            <tr className="bg-zinc-50 dark:bg-zinc-900/60 text-zinc-500 font-semibold border-b border-zinc-200 dark:border-zinc-800">
-                              <th className="p-2.5 pl-4">File Name</th>
-                              <th className="p-2.5">File Size</th>
-                              <th className="p-2.5">Content Type</th>
-                              <th className="p-2.5">Registry Path</th>
-                              <th className="p-2.5 text-right pr-4">Download Link</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/40">
-                            {filteredFiles.map((file, idx) => (
-                              <tr key={file.id || idx} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-900/40 transition-colors">
-                                <td className="p-2.5 pl-4 font-semibold text-zinc-700 dark:text-zinc-200">
-                                  <div className="flex items-center gap-2">
-                                    <File className="h-3.5 w-3.5 text-blue-500 shrink-0" />
-                                    <span className="truncate max-w-[180px] font-sans" title={file.name}>
-                                      {file.name}
-                                    </span>
+                    ) : (
+                      <>
+                        {viewMode === 'grid' ? (
+                          // GRID LAYOUT VIEW
+                          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                            {filteredFiles.map((file) => (
+                              <div
+                                key={file.id}
+                                className={`bg-white dark:bg-zinc-900 border rounded-xl p-3.5 flex flex-col justify-between hover:shadow-md transition-all group ${
+                                  selectedFile?.id === file.id
+                                    ? 'border-blue-500 ring-2 ring-blue-500/10'
+                                    : 'border-zinc-200 dark:border-zinc-800'
+                                }`}
+                              >
+                                <div 
+                                  onClick={() => setSelectedFile(file)}
+                                  className="flex-1 cursor-pointer flex flex-col"
+                                >
+                                  {/* File Category Icon Header Block */}
+                                  <div className="bg-zinc-50 dark:bg-zinc-950 rounded-lg py-5 flex items-center justify-center border border-zinc-100 dark:border-zinc-850 mb-3">
+                                    {getFileIcon(file.type)}
                                   </div>
-                                </td>
-                                <td className="p-2.5 font-mono text-zinc-500 dark:text-zinc-400">
-                                  {formatBytes(file.size)}
-                                </td>
-                                <td className="p-2.5">
-                                  <span className="inline-block px-1.5 py-0.5 rounded bg-blue-500/10 border border-blue-500/20 text-blue-500 text-[9px] uppercase font-mono font-bold">
-                                    {file.type || 'binary/stream'}
-                                  </span>
-                                </td>
-                                <td className="p-2.5 font-mono text-zinc-400 dark:text-zinc-500">
-                                  /storage/users/{user.mobile.substring(0, 4)}.../{file.name.substring(0, 8)}...
-                                </td>
-                                <td className="p-2.5 text-right pr-4">
+
+                                  {/* File metadata */}
+                                  <div className="flex-1 min-w-0">
+                                    <h4 className="text-xs font-bold text-zinc-800 dark:text-zinc-100 truncate group-hover:text-blue-500 transition-colors" title={file.name}>
+                                      {file.name}
+                                    </h4>
+                                    <div className="flex items-center gap-1.5 mt-0.5">
+                                      <span className="text-[10px] font-mono text-zinc-400">{formatSize(file.size)}</span>
+                                      {file.folderId && (
+                                        <span className="text-[8px] bg-blue-100/60 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-bold px-1 rounded truncate">
+                                          {folders.find(f => f.id === file.folderId)?.name}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <p className="text-[9px] text-zinc-400 dark:text-zinc-500 font-mono mt-1">
+                                      {new Date(file.uploadedAt).toLocaleDateString()}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                {/* Actions bottom strip */}
+                                <div className="flex items-center justify-between border-t border-zinc-100 dark:border-zinc-850/60 pt-2.5 mt-2.5">
                                   <button
-                                    onClick={() => copyToClipboard(`https://api.cloud.mtos-org.site/storage/users/${user.mobile}/${file.name}`, 'File URL')}
-                                    className="px-2 py-1 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded-md text-zinc-500 hover:text-blue-500 transition-all font-semibold inline-flex items-center gap-1 cursor-pointer text-[10px]"
+                                    onClick={() => toggleStar(file.id, !file.isStarred)}
+                                    className={`p-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer ${
+                                      file.isStarred ? 'text-amber-500' : 'text-zinc-400'
+                                    }`}
                                   >
-                                    <Copy className="h-2.5 w-2.5" /> Copy URL
+                                    <Star className="h-3.5 w-3.5 fill-current" />
                                   </button>
-                                </td>
-                              </tr>
+                                  
+                                  <div className="flex gap-1">
+                                    <button
+                                      onClick={() => {
+                                        setRenameValue(file.name);
+                                        setRenamingFileId(file.id);
+                                      }}
+                                      className="p-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-blue-500 cursor-pointer"
+                                      title="Rename"
+                                    >
+                                      <Edit3 className="h-3.5 w-3.5" />
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setMovingFile(file);
+                                        setIsMoveFolderOpen(true);
+                                      }}
+                                      className="p-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-blue-500 cursor-pointer"
+                                      title="Move to folder"
+                                    >
+                                      <FolderOpen className="h-3.5 w-3.5" />
+                                    </button>
+                                    <button
+                                      onClick={() => triggerDownload(file)}
+                                      className="p-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-blue-500 cursor-pointer"
+                                      title="Download"
+                                    >
+                                      <Download className="h-3.5 w-3.5" />
+                                    </button>
+                                    <button
+                                      onClick={() => deleteFile(file.id, false)}
+                                      className="p-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-rose-500 cursor-pointer"
+                                      title="Trash"
+                                    >
+                                      <Trash className="h-3.5 w-3.5" />
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
                             ))}
-                          </tbody>
-                        </table>
-                      )}
-                    </div>
+                          </div>
+                        ) : (
+                          // LIST LAYOUT VIEW
+                          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden shadow-xs">
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-left border-collapse text-xs">
+                                <thead>
+                                  <tr className="bg-zinc-50 dark:bg-zinc-900/40 border-b border-zinc-200 dark:border-zinc-800 text-zinc-400 font-bold">
+                                    <th className="p-3 pl-4">Name</th>
+                                    <th className="p-3">File Type</th>
+                                    <th className="p-3">Folder Location</th>
+                                    <th className="p-3">Size</th>
+                                    <th className="p-3">Uploaded At</th>
+                                    <th className="p-3 text-right pr-4">Actions</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/40">
+                                  {filteredFiles.map((file) => (
+                                    <tr 
+                                      key={file.id} 
+                                      className={`hover:bg-zinc-50/50 dark:hover:bg-zinc-900/40 transition-colors ${
+                                        selectedFile?.id === file.id ? 'bg-blue-50/30 dark:bg-blue-950/15' : ''
+                                      }`}
+                                    >
+                                      <td className="p-3 pl-4">
+                                        <div 
+                                          className="flex items-center gap-2.5 cursor-pointer"
+                                          onClick={() => setSelectedFile(file)}
+                                        >
+                                          {getFileIcon(file.type)}
+                                          <span className="font-bold text-zinc-800 dark:text-zinc-100 truncate max-w-[200px]" title={file.name}>
+                                            {file.name}
+                                          </span>
+                                        </div>
+                                      </td>
+                                      <td className="p-3 text-zinc-500 dark:text-zinc-400 font-mono text-[10.5px]">
+                                        {file.type || 'application/octet-stream'}
+                                      </td>
+                                      <td className="p-3">
+                                        {file.folderId ? (
+                                          <span className="px-2 py-0.5 bg-blue-100/60 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 text-[10px] font-bold rounded">
+                                            {folders.find(f => f.id === file.folderId)?.name}
+                                          </span>
+                                        ) : (
+                                          <span className="text-zinc-400 italic text-[10px]">My Drive (Root)</span>
+                                        )}
+                                      </td>
+                                      <td className="p-3 font-mono text-zinc-500">{formatSize(file.size)}</td>
+                                      <td className="p-3 text-zinc-500">{new Date(file.uploadedAt).toLocaleString()}</td>
+                                      <td className="p-3 text-right pr-4">
+                                        <div className="flex justify-end gap-1">
+                                          <button
+                                            onClick={() => toggleStar(file.id, !file.isStarred)}
+                                            className={`p-1.5 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer ${
+                                              file.isStarred ? 'text-amber-500' : 'text-zinc-400'
+                                            }`}
+                                          >
+                                            <Star className="h-3.5 w-3.5 fill-current" />
+                                          </button>
+                                          <button
+                                            onClick={() => triggerDownload(file)}
+                                            className="p-1.5 text-zinc-400 hover:text-blue-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded transition-colors cursor-pointer"
+                                            title="Download"
+                                          >
+                                            <Download className="h-3.5 w-3.5" />
+                                          </button>
+                                          <button
+                                            onClick={() => deleteFile(file.id, false)}
+                                            className="p-1.5 text-zinc-400 hover:text-rose-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded transition-colors cursor-pointer"
+                                            title="Trash"
+                                          >
+                                            <Trash className="h-3.5 w-3.5" />
+                                          </button>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
                   </div>
-                </motion.div>
+                </div>
               )}
 
-              {activeTab === 'billing' && (
-                // BILLING OPERATIONS TAB
-                <motion.div
-                  initial={{ opacity: 0, y: 15 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="space-y-4"
-                >
-                  {/* Keygen Console card */}
-                  <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-xl shadow-xs">
-                    <h3 className="text-sm font-bold text-zinc-900 dark:text-white mb-1 flex items-center gap-1.5">
-                      <Key className="h-4 w-4 text-blue-500" /> Generate Standalone API Credentials
-                    </h3>
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-4">
-                      Automatically binds an alternative unique permanent static string hash to your profile for usage tracking and external server integrations.
+              {/* STARRED TAB VIEW */}
+              {activeTab === 'starred' && (
+                <div className="space-y-4">
+                  <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-5 rounded-xl shadow-xs">
+                    <h2 className="text-base font-bold text-zinc-900 dark:text-white flex items-center gap-2">
+                      <Star className="h-5 w-5 text-amber-500 fill-current" />
+                      Starred Vault Assets
+                    </h2>
+                    <p className="text-zinc-500 dark:text-zinc-400 text-xs mt-1">
+                      Quickly access folders or files tagged with critical importance.
                     </p>
-
-                    <div className="p-4 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 space-y-3">
-                      {apiKey ? (
-                        <div className="space-y-2.5">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[10px] font-bold text-emerald-500 uppercase tracking-wider font-sans">
-                              Active Billing API Key
-                            </span>
-                            <span className="text-[9px] text-zinc-400 font-mono">
-                              Unique Profile Bind
-                            </span>
-                          </div>
-                          
-                          <div className="flex items-center gap-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-md p-2">
-                            <input
-                              type={showApiKey ? "text" : "password"}
-                              readOnly
-                              value={apiKey}
-                              className="flex-1 bg-transparent border-none text-[11px] font-mono focus:outline-none dark:text-white select-all text-zinc-800"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => setShowApiKey(!showApiKey)}
-                              className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
-                            >
-                              {showApiKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => copyToClipboard(apiKey, 'API Key')}
-                              className="p-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors cursor-pointer"
-                              title="Copy key string"
-                            >
-                              <Copy className="h-3 w-3" />
-                            </button>
-                          </div>
-                          <p className="text-[10px] text-zinc-400">
-                            Warning: Keep this credential secure. Anyone holding this API Key can authorize storage writes and trigger resource allocation bills.
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="text-center py-4">
-                          <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3 font-sans max-w-md mx-auto">
-                            No billing API key allocated for your active vault session. Request a secure bind string instantly.
-                          </p>
-                          <button
-                            onClick={generateApiKey}
-                            disabled={keyLoading}
-                            className="py-1.5 px-4 bg-blue-600 hover:bg-blue-500 active:scale-[0.98] text-white font-semibold rounded-md text-xs shadow-xs transition-all flex items-center gap-1.5 mx-auto disabled:opacity-70 disabled:pointer-events-none cursor-pointer"
-                          >
-                            {keyLoading ? (
-                              <RefreshCw className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <Key className="h-3 w-3" />
-                            )}
-                            Generate Standalone Key
-                          </button>
-                        </div>
-                      )}
-                    </div>
                   </div>
 
-                  {/* Billing Logs Card */}
-                  <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-xs overflow-hidden">
-                    <div className="p-4 border-b border-zinc-200 dark:border-zinc-800 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-zinc-100/20 dark:bg-zinc-900/40">
+                  {filteredFiles.length === 0 ? (
+                    <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 py-16 text-center flex flex-col items-center gap-3 rounded-xl">
+                      <div className="h-10 w-10 rounded-full bg-amber-500/10 text-amber-500 flex items-center justify-center">
+                        <Star className="h-5 w-5 fill-current" />
+                      </div>
                       <div>
-                        <h4 className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
-                          <FileText className="h-3.5 w-3.5 text-blue-500" /> Transaction & Billing Logs
-                        </h4>
-                        <p className="text-[11px] text-zinc-400 mt-0.5">Chronological record tracking real-time API integrations and sandbox read/writes</p>
+                        <h4 className="text-xs font-bold text-zinc-800 dark:text-zinc-100 font-sans">No Starred Items yet</h4>
+                        <p className="text-[11px] text-zinc-500 dark:text-zinc-400 max-w-sm mt-0.5">
+                          Tag folders or files with stars directly inside the browser file lists to pin them in this list.
+                        </p>
                       </div>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                      {filteredFiles.map((file) => (
+                        <div
+                          key={file.id}
+                          className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-3.5 flex flex-col justify-between hover:shadow-md transition-all group"
+                        >
+                          <div 
+                            onClick={() => setSelectedFile(file)}
+                            className="flex-1 cursor-pointer"
+                          >
+                            <div className="bg-zinc-50 dark:bg-zinc-950 rounded-lg py-5 flex items-center justify-center border border-zinc-100 dark:border-zinc-850 mb-3">
+                              {getFileIcon(file.type)}
+                            </div>
+                            <h4 className="text-xs font-bold text-zinc-800 dark:text-zinc-100 truncate group-hover:text-blue-500 transition-colors">
+                              {file.name}
+                            </h4>
+                            <p className="text-[10px] text-zinc-400 font-mono mt-0.5">{formatSize(file.size)}</p>
+                          </div>
 
-                      <button
-                        onClick={fetchBillingLogs}
-                        disabled={logsLoading}
-                        className="p-1.5 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 rounded-md transition-colors text-zinc-500 hover:text-zinc-800 disabled:opacity-50 shrink-0 inline-flex items-center gap-1 text-[11px] font-semibold cursor-pointer"
-                      >
-                        <RefreshCw className={`h-3 w-3 ${logsLoading ? 'animate-spin' : ''}`} /> Sync Logs
-                      </button>
+                          <div className="flex items-center justify-between border-t border-zinc-100 dark:border-zinc-850 pt-2.5 mt-2.5">
+                            <button
+                              onClick={() => toggleStar(file.id, false)}
+                              className="text-amber-500 hover:text-zinc-400 p-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all cursor-pointer"
+                              title="Unstar"
+                            >
+                              <Star className="h-3.5 w-3.5 fill-current" />
+                            </button>
+                            <div className="flex gap-1">
+                              <button
+                                onClick={() => triggerDownload(file)}
+                                className="p-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-blue-500 transition-colors cursor-pointer"
+                                title="Download"
+                              >
+                                <Download className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                onClick={() => deleteFile(file.id, false)}
+                                className="p-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-rose-500 transition-colors cursor-pointer"
+                                title="Trash"
+                              >
+                                <Trash className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* TRASH VIEW */}
+              {activeTab === 'trash' && (
+                <div className="space-y-4">
+                  <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-5 rounded-xl shadow-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                    <div>
+                      <h2 className="text-base font-bold text-zinc-900 dark:text-white flex items-center gap-2">
+                        <Trash className="h-5 w-5 text-rose-500" />
+                        Trash Storage Bin
+                      </h2>
+                      <p className="text-zinc-500 dark:text-zinc-400 text-xs mt-1">
+                        Files inside this segment are temporarily stored and can be restored or purged permanently.
+                      </p>
                     </div>
 
-                    {/* Table View */}
+                    {filteredFiles.length > 0 && (
+                      <button
+                        onClick={() => {
+                          const conf = confirm('Are you sure you want to permanently purge all items in the Trash?');
+                          if (conf) {
+                            filteredFiles.forEach(f => deleteFile(f.id, true));
+                          }
+                        }}
+                        className="py-1.5 px-3 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-lg text-xs transition-colors cursor-pointer shrink-0 shadow-xs flex items-center gap-1.5 self-start sm:self-auto"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" /> Empty Trash Bin
+                      </button>
+                    )}
+                  </div>
+
+                  {filteredFiles.length === 0 ? (
+                    <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 py-16 text-center flex flex-col items-center gap-3 rounded-xl">
+                      <div className="h-10 w-10 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-zinc-400">
+                        <Trash className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-zinc-800 dark:text-zinc-100 font-sans">Trash bin is clean</h4>
+                        <p className="text-[11px] text-zinc-500 dark:text-zinc-400 max-w-sm mt-0.5">
+                          Files you delete from My Drive will be staged in the trash temporarily.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                      {filteredFiles.map((file) => (
+                        <div
+                          key={file.id}
+                          className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-3.5 flex flex-col justify-between hover:shadow-md transition-all group"
+                        >
+                          <div>
+                            <div className="bg-zinc-50 dark:bg-zinc-950 rounded-lg py-5 flex items-center justify-center border border-zinc-100 dark:border-zinc-850 mb-3">
+                              {getFileIcon(file.type)}
+                            </div>
+                            <h4 className="text-xs font-bold text-zinc-800 dark:text-zinc-100 truncate" title={file.name}>
+                              {file.name}
+                            </h4>
+                            <p className="text-[10px] text-zinc-400 font-mono mt-0.5">{formatSize(file.size)}</p>
+                          </div>
+
+                          <div className="flex items-center justify-between border-t border-zinc-100 dark:border-zinc-850 pt-2.5 mt-2.5">
+                            <button
+                              onClick={() => restoreFile(file.id)}
+                              className="py-1 px-2.5 bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 font-semibold rounded text-[10px] hover:bg-zinc-200 transition-all cursor-pointer"
+                            >
+                              Restore
+                            </button>
+                            <button
+                              onClick={() => deleteFile(file.id, true)}
+                              className="p-1 rounded hover:bg-rose-500/10 text-zinc-400 hover:text-rose-500 transition-all cursor-pointer"
+                              title="Delete Permanently"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* PROFILE & LOGS VIEW */}
+              {activeTab === 'profile' && (
+                <div className="space-y-6">
+                  
+                  {/* Personal details card */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-6 rounded-xl shadow-xs space-y-4">
+                      <div className="flex flex-col items-center text-center">
+                        <div className="h-16 w-16 rounded-full bg-blue-600/10 border-2 border-blue-500/20 text-blue-600 flex items-center justify-center font-bold text-2xl uppercase mb-3">
+                          {user.name.charAt(0)}
+                        </div>
+                        <h3 className="text-base font-bold text-zinc-900 dark:text-white leading-tight">{user.name}</h3>
+                        <p className="text-xs text-zinc-500 dark:text-zinc-400">{user.email}</p>
+                      </div>
+
+                      <div className="border-t border-zinc-100 dark:border-zinc-800/60 pt-4 space-y-2.5 text-xs">
+                        <div className="flex justify-between">
+                          <span className="text-zinc-400">Account Username:</span>
+                          <span className="font-semibold">{user.mobile}@mtos-org.com</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-zinc-400">Primary Country:</span>
+                          <span className="font-semibold">{user.country}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-zinc-400">Secure Token:</span>
+                          <span className="font-mono text-[10px] bg-zinc-50 dark:bg-zinc-950 p-1 rounded max-w-[120px] truncate" title={user.token}>
+                            {user.token}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-6 rounded-xl shadow-xs lg:col-span-2 space-y-4">
+                      <div>
+                        <h3 className="text-xs font-bold text-zinc-900 dark:text-zinc-100 uppercase tracking-wider">
+                          Storage Allocation Settings
+                        </h3>
+                        <p className="text-[11px] text-zinc-500 dark:text-zinc-400">View and adjust storage configurations on your personal account.</p>
+                      </div>
+
+                      <div className="space-y-4 text-xs">
+                        <div className="bg-blue-500/5 p-4 rounded-lg border border-blue-500/10 space-y-2">
+                          <h4 className="font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1">
+                            <Sparkles className="h-4 w-4" />
+                            Free Account Plan
+                          </h4>
+                          <p className="text-zinc-600 dark:text-zinc-400 leading-relaxed text-[11px]">
+                            Your drive space is hosted on the MTOS strong container sandbox tier. This tier supports standard folder management, custom category indexes, real-time file searching, and holds a size limit of 100 MB.
+                          </p>
+                        </div>
+
+                        <div className="space-y-2.5">
+                          <div className="flex justify-between font-semibold">
+                            <span>Storage space consumption</span>
+                            <span>{stats.percent.toFixed(2)}% used</span>
+                          </div>
+                          <div className="h-2.5 bg-zinc-100 dark:bg-zinc-950 rounded-full overflow-hidden border border-zinc-200 dark:border-zinc-850">
+                            <div className="h-full bg-blue-600 rounded-full" style={{ width: `${stats.percent}%` }} />
+                          </div>
+                          <div className="flex justify-between text-[11px] text-zinc-500">
+                            <span>{formatSize(stats.totalSize)} occupied</span>
+                            <span>{formatSize(STORAGE_LIMIT - stats.totalSize)} remaining</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Operational logs */}
+                  <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-5 rounded-xl shadow-xs space-y-4">
+                    <div>
+                      <h3 className="text-xs font-bold text-zinc-900 dark:text-zinc-100 uppercase tracking-wider">
+                        Drive Sync Operation Logs
+                      </h3>
+                      <p className="text-[11px] text-zinc-500 dark:text-zinc-400">Live operational events triggered by your drive storage writes & deletes.</p>
+                    </div>
+
                     <div className="overflow-x-auto">
-                      {logsLoading ? (
-                        <div className="py-12 flex flex-col items-center justify-center text-zinc-400 gap-2">
-                          <RefreshCw className="h-6 w-6 animate-spin text-blue-500" />
-                          <span className="text-xs font-medium">Retrieving encrypted logs ledger...</span>
-                        </div>
-                      ) : billingLogs.length === 0 ? (
-                        <div className="py-12 text-center text-zinc-400 text-xs max-w-sm mx-auto space-y-2">
-                          <FileText className="h-6 w-6 text-zinc-300 dark:text-zinc-800 mx-auto" />
-                          <p className="font-semibold text-zinc-700 dark:text-zinc-300">No transactions recorded</p>
-                          <p className="text-zinc-400 text-[10px]">Operations like file uploading or credential generation will automatically seed logs here.</p>
-                        </div>
-                      ) : (
-                        <table className="w-full text-left border-collapse text-[11px] font-sans">
-                          <thead>
-                            <tr className="bg-zinc-50 dark:bg-zinc-900/60 text-zinc-500 font-semibold border-b border-zinc-200 dark:border-zinc-800">
-                              <th className="p-2.5 pl-4">Operation / API Path</th>
-                              <th className="p-2.5">Timestamp</th>
-                              <th className="p-2.5">Cost Ratio</th>
-                              <th className="p-2.5">IP Host Address</th>
-                              <th className="p-2.5 text-right pr-4">Outcome Status</th>
+                      <table className="w-full text-left text-xs font-sans">
+                        <thead>
+                          <tr className="bg-zinc-50 dark:bg-zinc-900/40 border-b border-zinc-200 dark:border-zinc-800 text-zinc-400 font-bold">
+                            <th className="p-2.5 pl-4">Operation ID</th>
+                            <th className="p-2.5">Action Event</th>
+                            <th className="p-2.5 text-right pr-4">Timestamp</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/40">
+                          {billingLogs.length === 0 ? (
+                            <tr>
+                              <td colSpan={3} className="py-8 text-center text-zinc-400 italic">No sync logs parsed yet.</td>
                             </tr>
-                          </thead>
-                          <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/40">
-                            {billingLogs.map((log, idx) => (
-                              <tr key={log.id || idx} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-900/40 transition-colors">
-                                <td className="p-2.5 pl-4 font-semibold text-zinc-700 dark:text-zinc-200 font-mono text-[11px]">
-                                  {log.action || 'Storage Write'}
+                          ) : (
+                            [...billingLogs].reverse().map((log) => (
+                              <tr key={log.id} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-900/40 transition-colors">
+                                <td className="p-2.5 pl-4 font-mono text-[10px] text-zinc-400 truncate max-w-[120px]" title={log.id}>
+                                  {log.id}
                                 </td>
-                                <td className="p-2.5 text-zinc-500 font-mono text-[10px]">
-                                  {log.timestamp || 'N/A'}
+                                <td className="p-2.5 font-semibold text-zinc-700 dark:text-zinc-300">
+                                  {log.action}
                                 </td>
-                                <td className="p-2.5 font-semibold text-blue-500 font-mono">
-                                  {log.cost !== undefined ? `$${log.cost.toFixed(4)}` : '$0.0000'}
-                                </td>
-                                <td className="p-2.5 font-mono text-zinc-400 dark:text-zinc-500">
-                                  {log.ip || '127.0.0.1 (Internal Gateway)'}
-                                </td>
-                                <td className="p-2.5 text-right pr-4">
-                                  <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-500 dark:text-emerald-400 text-[9px] border border-emerald-500/20 rounded-full uppercase tracking-wider font-bold">
-                                    SUCCESS
-                                  </span>
+                                <td className="p-2.5 text-right text-zinc-500 font-mono text-[11px] pr-4">
+                                  {log.timestamp}
                                 </td>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      )}
+                            ))
+                          )}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
-                </motion.div>
+                </div>
               )}
-
-              {activeTab === 'profile' && (
-                // DEVELOPER TOKEN/JWT INSPECT TAB
-                <motion.div
-                  initial={{ opacity: 0, y: 15 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="space-y-4"
-                >
-                  <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-xl shadow-xs">
-                    <h3 className="text-sm font-bold text-zinc-900 dark:text-white mb-1 flex items-center gap-1.5">
-                      <Shield className="h-4 w-4 text-blue-500" /> Active Session Token (JWT JSON)
-                    </h3>
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-4">
-                      This cryptographically signed token is automatically issued upon login, validating your identity securely with each storage request header.
-                    </p>
-
-                    <div className="space-y-3">
-                      {/* JSON Token display */}
-                      <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 p-4 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider font-sans">
-                            Cryptographic Signature Header
-                          </span>
-                          <button
-                            onClick={() => copyToClipboard(user.token, 'JWT Token')}
-                            className="text-[11px] text-blue-500 hover:text-blue-400 font-bold flex items-center gap-1 transition-colors cursor-pointer"
-                          >
-                            <Copy className="h-3 w-3" /> Copy Bearer Token
-                          </button>
-                        </div>
-
-                        <div className="p-2.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-md overflow-x-auto max-h-36">
-                          <code className="text-[10px] font-mono text-zinc-500 dark:text-blue-400 break-all select-all whitespace-pre-wrap">
-                            {user.token}
-                          </code>
-                        </div>
-                      </div>
-
-                      {/* Decoded Header View */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div className="border border-zinc-200 dark:border-zinc-800 p-4 rounded-xl bg-zinc-50/50 dark:bg-zinc-900/50 space-y-2">
-                          <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider font-mono">Mapped Token Claims</span>
-                          <div className="space-y-1 text-xs font-mono">
-                            <div className="flex justify-between py-1 border-b border-zinc-200 dark:border-zinc-800/40 text-[11px]">
-                              <span className="text-zinc-500">subject (sub)</span>
-                              <span className="text-zinc-800 dark:text-white truncate max-w-[150px] font-semibold">{user.mobile}</span>
-                            </div>
-                            <div className="flex justify-between py-1 border-b border-zinc-200 dark:border-zinc-800/40 text-[11px]">
-                              <span className="text-zinc-500">issuer (iss)</span>
-                              <span className="text-zinc-800 dark:text-white font-semibold">mtos-org.site</span>
-                            </div>
-                            <div className="flex justify-between py-1 border-b border-zinc-200 dark:border-zinc-800/40 text-[11px]">
-                              <span className="text-zinc-500">audience (aud)</span>
-                              <span className="text-zinc-800 dark:text-white font-semibold">api-cloud</span>
-                            </div>
-                            <div className="flex justify-between py-1 text-[11px]">
-                              <span className="text-zinc-500">algorithm (alg)</span>
-                              <span className="text-zinc-800 dark:text-white font-semibold">HS256/RS256</span>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="border border-zinc-200 dark:border-zinc-800 p-4 rounded-xl bg-zinc-50/50 dark:bg-zinc-900/50 space-y-2">
-                          <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider font-mono">Session Lifecycle</span>
-                          <div className="space-y-1 text-xs font-mono">
-                            <div className="flex justify-between py-1 border-b border-zinc-200 dark:border-zinc-800/40 text-[11px]">
-                              <span className="text-zinc-500">Issued At (iat)</span>
-                              <span className="text-zinc-800 dark:text-white font-semibold">Active Session</span>
-                            </div>
-                            <div className="flex justify-between py-1 border-b border-zinc-200 dark:border-zinc-800/40 text-[11px]">
-                              <span className="text-zinc-500">Expiry (exp)</span>
-                              <span className="text-zinc-800 dark:text-white font-semibold">Never expires (Stateless JWT)</span>
-                            </div>
-                            <div className="flex justify-between py-1 border-b border-zinc-200 dark:border-zinc-800/40 text-[11px]">
-                              <span className="text-zinc-500">Auth Scope</span>
-                              <span className="text-zinc-800 dark:text-white font-semibold">All permissions (read/write)</span>
-                            </div>
-                            <div className="flex justify-between py-1 text-[11px]">
-                              <span className="text-zinc-500">Encryption status</span>
-                              <span className="text-emerald-500 font-semibold flex items-center gap-1">
-                                <Check className="h-3 w-3" /> Secure Signature Verified
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-
             </div>
           </main>
         </div>
       )}
+
+      {/* DIALOGS / OVERLAYS */}
+
+      {/* 1. Create folder modal */}
+      <AnimatePresence>
+        {isCreateFolderOpen && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 w-full max-w-sm rounded-xl p-6 shadow-xl space-y-4"
+            >
+              <div>
+                <h3 className="text-sm font-bold text-zinc-900 dark:text-white">Create Virtual Folder</h3>
+                <p className="text-[11px] text-zinc-500 mt-0.5">Define a directory tag to segment uploaded files.</p>
+              </div>
+
+              <input
+                type="text"
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                placeholder="e.g. Legal Documents"
+                className="w-full px-3 py-2 text-xs rounded-lg bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 focus:outline-none focus:border-blue-500"
+                autoFocus
+              />
+
+              <div className="flex justify-end gap-2 text-xs pt-1">
+                <button
+                  onClick={() => {
+                    setIsCreateFolderOpen(false);
+                    setNewFolderName('');
+                  }}
+                  className="px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-750 font-bold rounded-lg cursor-pointer text-zinc-700 dark:text-zinc-300"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!newFolderName.trim()) {
+                      addAlert('Folder name is required.', 'error');
+                      return;
+                    }
+                    const ok = await createFolder(newFolderName.trim());
+                    if (ok) {
+                      setIsCreateFolderOpen(false);
+                      setNewFolderName('');
+                    }
+                  }}
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg cursor-pointer"
+                >
+                  Create Folder
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 2. Inline renaming file modal */}
+      <AnimatePresence>
+        {renamingFileId && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 w-full max-w-sm rounded-xl p-6 shadow-xl space-y-4"
+            >
+              <div>
+                <h3 className="text-sm font-bold text-zinc-900 dark:text-white">Rename File Asset</h3>
+                <p className="text-[11px] text-zinc-500 mt-0.5">Type in a new descriptive name for your storage asset.</p>
+              </div>
+
+              <input
+                type="text"
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                placeholder="filename.ext"
+                className="w-full px-3 py-2 text-xs rounded-lg bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 focus:outline-none focus:border-blue-500"
+                autoFocus
+              />
+
+              <div className="flex justify-end gap-2 text-xs pt-1">
+                <button
+                  onClick={() => {
+                    setRenamingFileId(null);
+                    setRenameValue('');
+                  }}
+                  className="px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-750 font-bold rounded-lg cursor-pointer text-zinc-700 dark:text-zinc-300"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!renameValue.trim()) {
+                      addAlert('Name cannot be empty.', 'error');
+                      return;
+                    }
+                    const ok = await renameFile(renamingFileId, renameValue.trim());
+                    if (ok) {
+                      setRenamingFileId(null);
+                      setRenameValue('');
+                    }
+                  }}
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg cursor-pointer"
+                >
+                  Apply Rename
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 3. Move File to Folder modal */}
+      <AnimatePresence>
+        {isMoveFolderOpen && movingFile && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 w-full max-w-md rounded-xl p-6 shadow-xl space-y-4"
+            >
+              <div>
+                <h3 className="text-sm font-bold text-zinc-900 dark:text-white">Move Asset Directory</h3>
+                <p className="text-[11px] text-zinc-500 mt-0.5">
+                  Select a destination folder for <strong className="text-zinc-700 dark:text-zinc-350 font-bold">“{movingFile.name}”</strong>.
+                </p>
+              </div>
+
+              <div className="space-y-1.5 max-h-[220px] overflow-y-auto pt-1">
+                {/* Root Option */}
+                <button
+                  onClick={async () => {
+                    const ok = await moveFile(movingFile.id, null);
+                    if (ok) setIsMoveFolderOpen(false);
+                  }}
+                  className={`w-full text-left p-2.5 rounded-lg border text-xs font-bold transition-all flex items-center gap-2 ${
+                    movingFile.folderId === null
+                      ? 'border-blue-500 bg-blue-50/30 dark:bg-blue-950/15 text-blue-600'
+                      : 'border-zinc-100 dark:border-zinc-850 hover:bg-zinc-50 dark:hover:bg-zinc-950'
+                  }`}
+                >
+                  <HardDrive className="h-4 w-4 shrink-0 text-blue-500" />
+                  My Drive Root (Unassigned)
+                </button>
+
+                {folders.map((f) => (
+                  <button
+                    key={f.id}
+                    onClick={async () => {
+                      const ok = await moveFile(movingFile.id, f.id);
+                      if (ok) setIsMoveFolderOpen(false);
+                    }}
+                    className={`w-full text-left p-2.5 rounded-lg border text-xs font-bold transition-all flex items-center gap-2 ${
+                      movingFile.folderId === f.id
+                        ? 'border-blue-500 bg-blue-50/30 dark:bg-blue-950/15 text-blue-600'
+                        : 'border-zinc-100 dark:border-zinc-850 hover:bg-zinc-50 dark:hover:bg-zinc-950'
+                    }`}
+                  >
+                    <Folder className="h-4 w-4 shrink-0 text-blue-500 fill-current" />
+                    {f.name}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex justify-end pt-1">
+                <button
+                  onClick={() => {
+                    setIsMoveFolderOpen(false);
+                    setMovingFile(null);
+                  }}
+                  className="px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-750 text-xs font-bold rounded-lg cursor-pointer text-zinc-700 dark:text-zinc-300"
+                >
+                  Close Options
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Category Details Modal */}
+      <AnimatePresence>
+        {selectedCategory && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 w-full max-w-2xl rounded-2xl p-6 shadow-2xl space-y-4 flex flex-col max-h-[85vh]"
+            >
+              <div className="flex items-center justify-between border-b border-zinc-150 dark:border-zinc-850 pb-4 shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="h-9 w-9 rounded-lg bg-blue-600/10 flex items-center justify-center text-blue-600 dark:text-blue-400">
+                    {selectedCategory === 'Images' && <FileImage className="h-5 w-5" />}
+                    {selectedCategory === 'Documents' && <FileText className="h-5 w-5" />}
+                    {selectedCategory === 'Media Files' && <FileVideo className="h-5 w-5" />}
+                    {selectedCategory === 'Others & Archives' && <File className="h-5 w-5" />}
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-zinc-900 dark:text-white uppercase tracking-wider">{selectedCategory} Category Files</h3>
+                    <p className="text-[11px] text-zinc-500 mt-0.5">
+                      Explore, download, and manage your physically synced {selectedCategory.toLowerCase()}.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedCategory(null)}
+                  className="hover:bg-zinc-100 dark:hover:bg-zinc-850 p-1.5 rounded-lg text-zinc-400 cursor-pointer"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              {/* Scrollable List content */}
+              <div className="flex-1 overflow-y-auto space-y-3 pr-1 py-1 animate-fadeIn">
+                {getCategoryFiles(selectedCategory).length === 0 ? (
+                  <div className="py-16 text-center flex flex-col items-center justify-center gap-3">
+                    <div className="h-12 w-12 rounded-full bg-zinc-50 dark:bg-zinc-950 flex items-center justify-center text-zinc-400 border border-zinc-100 dark:border-zinc-850">
+                      <Cloud className="h-5 w-5 animate-pulse" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-zinc-800 dark:text-zinc-200">No category assets found</h4>
+                      <p className="text-[11px] text-zinc-500 dark:text-zinc-400 max-w-xs mt-0.5">
+                        Upload some files in this format to index them under {selectedCategory.toLowerCase()}.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-zinc-100 dark:divide-zinc-850/60">
+                    {getCategoryFiles(selectedCategory).map((file) => (
+                      <div
+                        key={file.id}
+                        className="py-3 flex items-center justify-between gap-4 group hover:bg-zinc-50 dark:hover:bg-zinc-950 px-2.5 rounded-xl transition-all"
+                      >
+                        <div className="flex items-center gap-3 overflow-hidden">
+                          <div className="bg-zinc-100 dark:bg-zinc-950 p-2 rounded-lg border border-zinc-200/50 dark:border-zinc-850">
+                            {getFileIcon(file.type)}
+                          </div>
+                          <div className="overflow-hidden leading-tight">
+                            <h4 className="text-xs font-bold text-zinc-800 dark:text-zinc-100 truncate" title={file.name}>
+                              {file.name}
+                            </h4>
+                            <p className="text-[10px] text-zinc-400 dark:text-zinc-500 font-mono mt-1">
+                              {formatSize(file.size)} • {new Date(file.uploadedAt).toLocaleDateString()}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            onClick={() => triggerDownload(file)}
+                            className="p-2 rounded-lg hover:bg-blue-500/10 text-zinc-400 hover:text-blue-500 transition-colors cursor-pointer"
+                            title="Download Asset"
+                          >
+                            <Download className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={async () => {
+                              const conf = confirm(`Are you sure you want to permanently delete "${file.name}"?`);
+                              if (conf) {
+                                await deleteFile(file.id, true);
+                              }
+                            }}
+                            className="p-2 rounded-lg hover:bg-rose-500/10 text-zinc-400 hover:text-rose-500 transition-colors cursor-pointer"
+                            title="Delete Asset"
+                          >
+                            <Trash className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end border-t border-zinc-150 dark:border-zinc-850 pt-4 shrink-0">
+                <button
+                  onClick={() => setSelectedCategory(null)}
+                  className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-750 text-xs font-bold rounded-lg cursor-pointer text-zinc-700 dark:text-zinc-300"
+                >
+                  Close View
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 4. Detail Side Drawer Panel */}
+      <AnimatePresence>
+        {selectedFile && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-40 flex justify-end">
+            {/* Backdrop click to close */}
+            <div className="absolute inset-0" onClick={() => setSelectedFile(null)} />
+            
+            <motion.div
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 220 }}
+              className="relative w-full max-w-sm bg-white dark:bg-zinc-900 border-l border-zinc-200 dark:border-zinc-800 shadow-2xl h-full flex flex-col z-50"
+            >
+              {/* Drawer Header */}
+              <div className="px-5 py-4 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between bg-zinc-50/50 dark:bg-zinc-900/40">
+                <h3 className="text-xs font-bold text-zinc-900 dark:text-white uppercase tracking-wider">File Metadata</h3>
+                <button
+                  onClick={() => setSelectedFile(null)}
+                  className="hover:bg-zinc-200 dark:hover:bg-zinc-800 p-1 rounded-lg text-zinc-400 hover:text-zinc-700 transition-colors cursor-pointer"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              {/* Drawer Content */}
+              <div className="flex-1 p-6 space-y-6 overflow-y-auto">
+                {/* Visual Category Icon Box */}
+                <div className="bg-zinc-50 dark:bg-zinc-950 rounded-xl py-12 flex items-center justify-center border border-zinc-100 dark:border-zinc-850">
+                  <div className="scale-125">{getFileIcon(selectedFile.type)}</div>
+                </div>
+
+                {/* Details */}
+                <div className="space-y-4">
+                  <div>
+                    <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest font-mono">File Name</span>
+                    <h4 className="text-xs font-bold text-zinc-800 dark:text-zinc-100 break-all mt-0.5">{selectedFile.name}</h4>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest font-mono">File Size</span>
+                      <p className="text-xs font-bold text-zinc-800 dark:text-zinc-100 mt-0.5">{formatSize(selectedFile.size)}</p>
+                    </div>
+                    <div>
+                      <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest font-mono">Folder Location</span>
+                      <p className="text-xs font-bold text-zinc-800 dark:text-zinc-100 mt-0.5">
+                        {selectedFile.folderId ? (
+                          <span className="text-blue-500 font-bold">
+                            {folders.find(f => f.id === selectedFile.folderId)?.name}
+                          </span>
+                        ) : 'My Drive (Root)'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest font-mono">Mime Type</span>
+                      <p className="text-[10.5px] font-mono text-zinc-600 dark:text-zinc-350 break-all mt-0.5">{selectedFile.type || 'Unknown'}</p>
+                    </div>
+                    <div>
+                      <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest font-mono">Uploaded Date</span>
+                      <p className="text-xs font-bold text-zinc-800 dark:text-zinc-100 mt-0.5">{new Date(selectedFile.uploadedAt).toLocaleString()}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Drawer Action Bar */}
+              <div className="p-4 border-t border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40 grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => triggerDownload(selectedFile)}
+                  className="py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg text-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <Download className="h-3.5 w-3.5" /> Download File
+                </button>
+                <button
+                  onClick={() => copyShareLink(selectedFile)}
+                  className="py-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-750 text-zinc-700 dark:text-zinc-200 font-bold rounded-lg text-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <Copy className="h-3.5 w-3.5" /> Share Asset
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

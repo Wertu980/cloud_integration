@@ -1,6 +1,6 @@
 {
-  "name": "MTOS Cloud Console",
-  "description": "Secure, high-performance cloud portal for sandboxed file storage, authentication, and API credentials tracking via MTOS Cloud Services.",
+  "name": "MTOS Cloud Drive",
+  "description": "A secure personal cloud storage portal to create folders, upload files, drag & drop media assets, star favorites, and monitor directory space.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
